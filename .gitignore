@@ -1,4 +1,3 @@
 __pycache__/
 *.pyc
-data/*.json
-data/*_submit.md
+data/*
