@@ -304,9 +304,9 @@ $("exportBtn").onclick = async () => {
 };
 $("submitBtn").onclick = async () => {
   const r = await fetch(`/api/submit/${char}`, {method: "POST"});
-  const {path, keepers, deleted} = await r.json();
-  $("submitStat").textContent = `submitted ${keepers} keepers, deleted ${deleted} rejects`;
-  loadItems();
+  const {path, keepers, deleted, folder_removed} = await r.json();
+  $("submitStat").textContent = `submitted ${keepers} keepers, deleted ${deleted} rejects${folder_removed ? " · folder removed" : ""}`;
+  if (folder_removed) { await loadChars(); } else { loadItems(); }
   setTimeout(() => $("submitStat").textContent = "", 6000);
 };
 

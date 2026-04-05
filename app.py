@@ -198,7 +198,12 @@ def submit(character: str):
         else:
             remaining[name] = entry
     save_marks(character, remaining)
-    return jsonify({"ok": True, "path": str(path), "keepers": keepers, "deleted": deleted})
+    # If character folder is now empty, remove it
+    folder_removed = False
+    if char_dir.is_dir() and not any(char_dir.iterdir()):
+        char_dir.rmdir()
+        folder_removed = True
+    return jsonify({"ok": True, "path": str(path), "keepers": keepers, "deleted": deleted, "folder_removed": folder_removed})
 
 
 if __name__ == "__main__":
