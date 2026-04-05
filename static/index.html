@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>keeper-web</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #111; color: #ddd; }
+  body { display: flex; }
+  main { flex: 1; min-width: 0; }
+  aside { width: 200px; background: #1a1a1a; border-left: 1px solid #333; padding: 12px; position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto; font-size: 0.85em; }
+  aside h3 { margin: 0 0 8px; color: #888; font-size: 0.75em; text-transform: uppercase; letter-spacing: 1px; }
+  aside .key { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #222; }
+  aside .key kbd { background: #333; color: #fc4; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 0.9em; }
+  aside .sep { height: 12px; }
+  header { position: sticky; top: 0; background: #1a1a1a; border-bottom: 1px solid #333; padding: 8px 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; z-index: 10; }
+  header select, header button { background: #222; color: #ddd; border: 1px solid #444; padding: 4px 8px; border-radius: 3px; font: inherit; }
+  header button:hover { background: #333; cursor: pointer; }
+  .stat { color: #888; font-size: 0.9em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 6px; padding: 6px; }
+  .card { position: relative; background: #1a1a1a; border: 2px solid #333; border-radius: 3px; overflow: hidden; cursor: pointer; aspect-ratio: 904 / 1400; }
+  .card.active { border-color: #4af; box-shadow: 0 0 0 1px #4af; }
+  .card.keep { border-color: #4c4; }
+  .card.reject { border-color: #c44; opacity: 0.4; }
+  .card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .label { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.85)); padding: 18px 6px 4px; font-size: 0.75em; }
+  .card .date { position: absolute; top: 4px; left: 4px; background: rgba(0,0,0,0.7); padding: 2px 6px; border-radius: 3px; font-size: 0.7em; color: #aaa; }
+  .badges { position: absolute; top: 4px; right: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+  .badge { background: rgba(0,0,0,0.7); padding: 2px 6px; border-radius: 3px; font-size: 0.7em; }
+  .badge.keep { background: #4c4; color: #111; font-weight: bold; }
+  .badge.hq { background: #4af; color: #111; }
+  .badge.note { background: #fc4; color: #111; }
+  .badge.refined { background: #a6f; color: #111; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: none; align-items: center; justify-content: center; z-index: 100; flex-direction: column; padding: 20px; gap: 12px; }
+  .modal.show { display: flex; }
+  .modal img { max-width: 85vw; max-height: 80vh; object-fit: contain; }
+  .modal .info { color: #aaa; font-size: 0.9em; text-align: center; }
+  .compare { display: none; gap: 12px; max-width: 95vw; max-height: 80vh; }
+  .compare.show { display: flex; }
+  .compare .pane { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+  .compare .pane img { max-width: 100%; max-height: 78vh; object-fit: contain; cursor: pointer; border: 2px solid #333; border-radius: 3px; }
+  .compare .pane.active img { border-color: #4af; box-shadow: 0 0 0 1px #4af; }
+  .compare .pane.keep img { border-color: #4c4; }
+  .compare .pane .cap { font-size: 0.8em; color: #aaa; text-align: center; }
+  .compare .pane .cap .name { color: #ddd; }
+  #noteInput { background: #222; color: #ddd; border: 1px solid #444; padding: 8px; width: 400px; max-width: 80vw; }
+  #exportBox { position: fixed; inset: 40px; background: #111; border: 1px solid #444; padding: 12px; display: none; flex-direction: column; z-index: 200; }
+  #exportBox.show { display: flex; }
+  #exportBox textarea { flex: 1; background: #000; color: #ddd; border: 1px solid #333; font-family: monospace; font-size: 0.85em; padding: 8px; }
+  #exportBox .row { display: flex; gap: 8px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <select id="charSel"></select>
+  <select id="sortSel">
+    <option value="newest">newest first</option>
+    <option value="name">by name</option>
+  </select>
+  <select id="filterSel">
+    <option value="all">all</option>
+    <option value="keep">keepers</option>
+    <option value="reject">rejects</option>
+    <option value="unmarked">unmarked</option>
+  </select>
+  <span class="stat" id="stat"></span>
+  <button id="exportBtn">preview</button>
+  <button id="submitBtn" style="background:#4c4;color:#111;font-weight:bold">submit to claude</button>
+  <span class="stat" id="submitStat"></span>
+</header>
+<div class="grid" id="grid"></div>
+</main>
+<aside>
+  <h3>Marks</h3>
+  <div class="key"><span>keep</span><kbd>Z</kbd></div>
+  <div class="key"><span>reject</span><kbd>X</kbd></div>
+  <div class="key"><span>note</span><kbd>C</kbd></div>
+  <div class="sep"></div>
+  <h3>HQ Pass</h3>
+  <div class="key"><span>face</span><kbd>1</kbd></div>
+  <div class="key"><span>hand/cock</span><kbd>2</kbd></div>
+  <div class="key"><span>full 2-pass</span><kbd>3</kbd></div>
+  <div class="sep"></div>
+  <h3>Navigate</h3>
+  <div class="key"><span>prev/next</span><kbd>← →</kbd></div>
+  <div class="key"><span>up/down row</span><kbd>↑ ↓</kbd></div>
+  <div class="key"><span>open</span><kbd>Enter</kbd></div>
+  <div class="key"><span>close</span><kbd>Esc</kbd></div>
+  <div class="sep"></div>
+  <h3>Compare</h3>
+  <div class="key"><span>toggle pair</span><kbd>V</kbd></div>
+  <div class="key"><span>switch side</span><kbd>Tab</kbd></div>
+</aside>
+
+<div class="modal" id="modal">
+  <img id="modalImg">
+  <div class="compare" id="compare">
+    <div class="pane" id="paneL" data-side="L"><img id="imgL"><div class="cap" id="capL"></div></div>
+    <div class="pane" id="paneR" data-side="R"><img id="imgR"><div class="cap" id="capR"></div></div>
+  </div>
+  <div class="info" id="modalInfo"></div>
+  <input id="noteInput" placeholder="note (Enter to save, Esc to close)">
+</div>
+
+<div id="exportBox">
+  <textarea id="exportText" readonly></textarea>
+  <div class="row">
+    <button onclick="navigator.clipboard.writeText(document.getElementById('exportText').value)">copy</button>
+    <button onclick="document.getElementById('exportBox').classList.remove('show')">close</button>
+  </div>
+</div>
+
+<script>
+const HQ_MAP = {1:"face", 2:"hand-cock", 3:"full-2pass"};
+let char = null, items = [], active = 0, noteOpen = false;
+let compareOn = false, compareSide = "R"; // R = refine pane active
+
+const $ = id => document.getElementById(id);
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function fmtDate(ts) {
+  const d = new Date(ts * 1000);
+  const hh = String(d.getHours()).padStart(2,"0");
+  const mm = String(d.getMinutes()).padStart(2,"0");
+  return `${MONTHS[d.getMonth()]} ${d.getDate()} ${hh}:${mm}`;
+}
+
+async function loadChars() {
+  const r = await fetch("/api/characters");
+  const chars = await r.json();
+  $("charSel").innerHTML = chars.map(c => `<option value="${c.name}">${c.name} (${c.count})</option>`).join("");
+  if (chars.length) { char = chars[0].name; loadItems(); }
+}
+
+async function loadItems() {
+  const sort = $("sortSel").value;
+  const r = await fetch(`/api/images/${char}?sort=${sort}`);
+  items = await r.json();
+  active = 0;
+  render();
+}
+
+function filtered() {
+  const f = $("filterSel").value;
+  return items.map((it, i) => ({it, i})).filter(({it}) => {
+    if (f === "keep") return it.keep;
+    if (f === "reject") return it.reject;
+    if (f === "unmarked") return !it.keep && !it.reject;
+    return true;
+  });
+}
+
+function render() {
+  const view = filtered();
+  const kept = items.filter(i => i.keep).length;
+  $("stat").textContent = `${items.length} imgs · ${kept} keepers · showing ${view.length}`;
+  $("grid").innerHTML = view.map(({it, i}) => `
+    <div class="card ${it.keep?'keep':''} ${it.reject?'reject':''} ${i===active?'active':''}" data-idx="${i}">
+      <img loading="lazy" src="/img/${char}/${it.file}">
+      <div class="date">${fmtDate(it.mtime)}</div>
+      <div class="badges">
+        ${it.keep ? '<span class="badge keep">K</span>' : ''}
+        ${it.hq ? `<span class="badge hq">${it.hq}</span>` : ''}
+        ${it.note ? '<span class="badge note">N</span>' : ''}
+        ${it.refined ? '<span class="badge refined">R</span>' : ''}
+      </div>
+      <div class="label">${it.name}${it.note ? ' · '+it.note : ''}</div>
+    </div>
+  `).join("");
+  $("grid").querySelectorAll(".card").forEach(el => {
+    el.onclick = () => { active = +el.dataset.idx; render(); openModal(); };
+  });
+  const activeEl = $("grid").querySelector(".card.active");
+  if (activeEl) activeEl.scrollIntoView({block: "nearest"});
+}
+
+function itemByName(name) { return items.find(x => x.name === name); }
+
+function activeCompareItem() {
+  // In compare mode, the active side's item is what marks apply to
+  if (!compareOn) return items[active];
+  const cur = items[active];
+  if (!cur || !cur.pair) return cur;
+  const pair = itemByName(cur.pair);
+  // Determine which is "original" (L) vs "refine/HQ" (R)
+  const curIsRefine = /_refine_|_hq_/.test(cur.name);
+  const L = curIsRefine ? pair : cur;
+  const R = curIsRefine ? cur : pair;
+  return compareSide === "L" ? L : R;
+}
+
+async function mark(patch) {
+  const it = activeCompareItem();
+  if (!it) return;
+  const r = await fetch(`/api/mark/${char}/${it.name}`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(patch)
+  });
+  const {entry} = await r.json();
+  Object.assign(it, {keep: false, reject: false, hq: null, note: ""}, entry);
+  render();
+  if ($("modal").classList.contains("show")) updateModal();
+}
+
+function openModal() {
+  const it = items[active]; if (!it) return;
+  $("modal").classList.add("show");
+  updateModal();
+}
+function fmtInfo(it) {
+  if (!it) return "";
+  return `${it.name} · ${it.keep?'KEEP':''} ${it.reject?'REJECT':''} ${it.hq?'hq='+it.hq:''} ${it.note?'"'+it.note+'"':''}`;
+}
+function paneCls(pane, it, isActive) {
+  pane.classList.toggle("active", isActive);
+  pane.classList.toggle("keep", !!(it && it.keep));
+}
+function updateModal() {
+  const cur = items[active]; if (!cur) return;
+  if (compareOn && cur.pair) {
+    const pair = itemByName(cur.pair);
+    const curIsRefine = /_refine_|_hq_/.test(cur.name);
+    const L = curIsRefine ? pair : cur;
+    const R = curIsRefine ? cur : pair;
+    $("modalImg").style.display = "none";
+    $("compare").classList.add("show");
+    $("imgL").src = L ? `/img/${char}/${L.file}` : "";
+    $("imgR").src = R ? `/img/${char}/${R.file}` : "";
+    $("capL").innerHTML = `<div class="name">${L?L.name:''}</div>original${L?' · '+fmtInfo(L).split(' · ').slice(1).join(' · '):''}`;
+    $("capR").innerHTML = `<div class="name">${R?R.name:''}</div>refine/hq${R?' · '+fmtInfo(R).split(' · ').slice(1).join(' · '):''}`;
+    paneCls($("paneL"), L, compareSide === "L");
+    paneCls($("paneR"), R, compareSide === "R");
+    const ac = activeCompareItem();
+    $("modalInfo").textContent = `COMPARE · editing [${compareSide}] ${ac?ac.name:''} (Tab to switch, V to exit)`;
+    $("noteInput").value = ac ? (ac.note || "") : "";
+  } else {
+    $("modalImg").style.display = "";
+    $("compare").classList.remove("show");
+    $("modalImg").src = `/img/${char}/${cur.file}`;
+    $("modalInfo").textContent = fmtInfo(cur) + (cur.pair ? "  ·  [V] compare with "+cur.pair : "");
+    $("noteInput").value = cur.note || "";
+  }
+}
+function closeModal() { $("modal").classList.remove("show"); noteOpen = false; compareOn = false; $("compare").classList.remove("show"); $("modalImg").style.display=""; $("noteInput").blur(); }
+
+function step(d) {
+  const view = filtered();
+  const pos = view.findIndex(v => v.i === active);
+  const next = view[Math.max(0, Math.min(view.length-1, pos+d))];
+  if (next) { active = next.i; render(); if ($("modal").classList.contains("show")) updateModal(); }
+}
+function cols() {
+  const g = $("grid");
+  const style = getComputedStyle(g);
+  return style.gridTemplateColumns.split(" ").length || 1;
+}
+
+document.addEventListener("keydown", e => {
+  if (noteOpen) {
+    if (e.key === "Enter") { mark({note: $("noteInput").value}); noteOpen = false; $("noteInput").blur(); }
+    else if (e.key === "Escape") { noteOpen = false; $("noteInput").blur(); }
+    return;
+  }
+  if (e.target.tagName === "SELECT") return;
+  const k = e.key.toLowerCase();
+  if (k === "z") mark({keep: !items[active]?.keep, reject: false});
+  else if (k === "x") mark({reject: !items[active]?.reject, keep: false});
+  else if (k === "1") mark({hq: items[active]?.hq === "face" ? null : "face"});
+  else if (k === "2") mark({hq: items[active]?.hq === "hand-cock" ? null : "hand-cock"});
+  else if (k === "3") mark({hq: items[active]?.hq === "full-2pass" ? null : "full-2pass"});
+  else if (k === "c") { if (!$("modal").classList.contains("show")) openModal(); noteOpen = true; $("noteInput").focus(); $("noteInput").select(); e.preventDefault(); }
+  else if (e.key === "ArrowRight") step(1);
+  else if (e.key === "ArrowLeft") step(-1);
+  else if (e.key === "ArrowDown") step(cols());
+  else if (e.key === "ArrowUp") step(-cols());
+  else if (k === "v") {
+    const cur = items[active];
+    if (cur && cur.pair) {
+      if (!$("modal").classList.contains("show")) openModal();
+      compareOn = !compareOn;
+      // Default active side = refine/hq when entering compare
+      compareSide = "R";
+      updateModal();
+    }
+  }
+  else if (e.key === "Tab" && compareOn) { e.preventDefault(); compareSide = compareSide === "L" ? "R" : "L"; updateModal(); }
+  else if (e.key === "Enter") openModal();
+  else if (e.key === "Escape") closeModal();
+});
+
+// Click pane to switch active side in compare
+["paneL","paneR"].forEach(id => {
+  $(id).addEventListener("click", () => { if (compareOn) { compareSide = $(id).dataset.side; updateModal(); } });
+});
+
+$("charSel").onchange = e => { char = e.target.value; loadItems(); };
+$("sortSel").onchange = loadItems;
+$("filterSel").onchange = render;
+$("exportBtn").onclick = async () => {
+  const r = await fetch(`/api/export/${char}`);
+  $("exportText").value = await r.text();
+  $("exportBox").classList.add("show");
+};
+$("submitBtn").onclick = async () => {
+  const r = await fetch(`/api/submit/${char}`, {method: "POST"});
+  const {path, keepers, deleted} = await r.json();
+  $("submitStat").textContent = `submitted ${keepers} keepers, deleted ${deleted} rejects`;
+  loadItems();
+  setTimeout(() => $("submitStat").textContent = "", 6000);
+};
+
+loadChars();
+</script>
+</body>
+</html>
