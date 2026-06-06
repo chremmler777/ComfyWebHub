@@ -900,18 +900,15 @@ def animate_page():
     return resp
 
 
+import runpod_client
+
+
 def _runpod_post(path: str, data: dict) -> dict:
-    body = json.dumps(data).encode()
-    r = http_requests.post(f"{RUNPOD_COMFY}{path}", data=body,
-                           headers={"Content-Type": "application/json"}, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    return runpod_client.post(path, data)
 
 
 def _runpod_get(path: str) -> dict:
-    r = http_requests.get(f"{RUNPOD_COMFY}{path}", timeout=10)
-    r.raise_for_status()
-    return r.json()
+    return runpod_client.get(path)
 
 
 def _download_video(job: dict, videos: list[dict]) -> None:
@@ -951,18 +948,9 @@ def _download_video(job: dict, videos: list[dict]) -> None:
             pass
 
 
-def _upload_to_runpod(image_path: Path) -> str:
+def _upload_to_runpod(image_path) -> str:
     """Upload image to RunPod ComfyUI input folder, return filename."""
-    suffix = image_path.suffix.lower()
-    mt = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(suffix, "image/png")
-    with open(image_path, "rb") as f:
-        r = http_requests.post(
-            f"{RUNPOD_COMFY}/upload/image",
-            files={"image": (image_path.name, f, mt)},
-            timeout=60,
-        )
-    r.raise_for_status()
-    return r.json()["name"]
+    return runpod_client.upload_image(image_path)
 
 
 @app.post("/api/animate")
@@ -1004,6 +992,10 @@ def api_animate():
         "fast_mode": fast_mode,
         "quality_steps": quality_steps,
         "content_loras": body.get("content_loras", []),
+        "long_mode": bool(body.get("long_mode", False)),
+        "target_clips": int(body.get("target_clips", 0)),
+        "clip_prompts": body.get("clip_prompts", []),
+        "clip_progress": "",
         "submitted": time.time(),
         "status": "pending",
         "videos": [],
@@ -1158,6 +1150,22 @@ def api_dispatch(job_id: str):
 
     refined_prompt = body.get("prompt", job["prompt"])
     job["prompt"] = refined_prompt
+
+    if job.get("long_mode") and job.get("engine", "wan") == "wan":
+        import svi_long
+        if not job.get("target_clips") and not job.get("clip_prompts"):
+            job["target_clips"] = svi_long.pick_clip_count(refined_prompt)
+        job["status"] = "queued"
+        _save_jobs()
+        svi_long.start(
+            job,
+            output_root=OUTPUT_ROOT, video_dir=VIDEO_DIR,
+            ensure_loras=_ensure_default_wan_loras,
+            on_update=_save_jobs,
+        )
+        return jsonify({"ok": True, "long_mode": True,
+                        "target_clips": job.get("target_clips"),
+                        "clips": len(job.get("clip_prompts") or [])})
 
     png_path = OUTPUT_ROOT / job["character"] / f"{job['name']}.png"
     try:
