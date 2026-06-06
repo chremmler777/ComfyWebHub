@@ -1,5 +1,7 @@
 """SVI 2.0 Pro long-video orchestrator: chain N 81-frame clips into one MP4."""
+import json
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -69,6 +71,22 @@ def concat_clips(clip_paths: list[str], out_mp4: str) -> str:
     return out_mp4
 
 
+_THUMBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "video_thumbs")
+
+
+def _publish_to_keeperweb(final_mp4: str, char: str, stem: str, job: dict) -> None:
+    """Generate the thumbnail + json sidecar keeperweb needs so the finished video shows up."""
+    os.makedirs(_THUMBS_DIR, exist_ok=True)
+    thumb = os.path.join(_THUMBS_DIR, f"{char}__{stem}.jpg")
+    subprocess.run(["ffmpeg", "-y", "-i", final_mp4, "-vframes", "1", "-q:v", "3", thumb],
+                   capture_output=True, timeout=30)
+    sidecar = final_mp4[:-4] + ".json"
+    with open(sidecar, "w") as f:
+        json.dump({"character": char, "src_name": job.get("name", ""),
+                   "prompt": job.get("prompt", ""), "fps": int(job.get("fps", 24)),
+                   "long_mode": True, "clips": job.get("clip_progress", "")}, f)
+
+
 def run_long_job(job: dict, *, output_root, video_dir, ensure_loras, on_update) -> None:
     """Render the chained clips and concat into one MP4.
 
@@ -121,10 +139,15 @@ def run_long_job(job: dict, *, output_root, video_dir, ensure_loras, on_update) 
 
         dest_dir = os.path.join(str(video_dir), char)
         os.makedirs(dest_dir, exist_ok=True)
-        final = os.path.join(dest_dir, f"{name}__svi_long.mp4")
+        # out_stem lets multiple long videos from the same source image coexist
+        # (e.g. a "dance" variant vs an "invite" variant) instead of overwriting.
+        stem = f"{job.get('out_stem') or name}__svi_long"
+        final = os.path.join(dest_dir, f"{stem}.mp4")
         concat_clips(clips, final)
+        _publish_to_keeperweb(final, char, stem, job)
+        shutil.rmtree(tmp, ignore_errors=True)  # drop temp clip parts
         job["status"] = "done"
-        job["videos"] = [{"rel": f"{char}/{name}__svi_long.mp4", "url": ""}]
+        job["videos"] = [{"rel": f"{char}/{stem}.mp4", "url": ""}]
         on_update()
     except Exception as e:
         job["status"] = "error"
