@@ -100,6 +100,12 @@ def run_long_job(job: dict, *, output_root, video_dir, ensure_loras, on_update) 
                 image_filename=comfy_name, positive_prompt=prompt,
                 width=w, height=h, length=CLIP_FRAMES, fps=int(job.get("fps", 24)),
                 seed=base_seed + i, long_clip=True,
+                # SVI off by default: its loras corrupt generation via the standard
+                # LoraLoaderModelOnly path (needs Kijai native WanVideoWrapper nodes).
+                # Chaining alone (last-frame seeding) carries continuity. Override per job.
+                lightx2v_strength=float(job.get("lightx2v_strength", 1.0)),
+                svi_strength=float(job.get("svi_strength", 0.0)),
+                long_steps=int(job.get("long_steps", 6)),
                 content_loras=ensure_loras(job.get("content_loras", [])),
                 filename_prefix=f"video/svi_{job['job_id']}_{i}",
             )

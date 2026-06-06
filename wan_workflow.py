@@ -16,6 +16,15 @@ DEFAULT_NEGATIVE = (
     "other people, crowd, background people, multiple people, group, bystanders"
 )
 
+# Long-mode negative: hand-on-cock action scenes (stroke, spin). Strips the
+# hand-suppression terms and the blanket fast-motion terms so deliberate hand
+# action and rotation can happen, while keeping jitter/quality protections.
+LONG_NEGATIVE = (
+    DEFAULT_NEGATIVE
+    .replace("hand on penis, touching penis, grabbing penis, stroking penis, hands on genitals, ", "")
+    .replace("sped up motion, fast movement, fast motions, rapid movement, hurried motion, rushed gestures, ", "")
+)
+
 # Available content LoRAs — each has a High and Low variant
 CONTENT_LORAS = {
     "Anal_Sex":       ("wan/Anal_Sex_High.safetensors",       "wan/Anal_Sex_Low.safetensors"),
@@ -62,6 +71,7 @@ def build_wan_i2v_workflow(
     long_clip: bool = False,
     lightx2v_strength: float = 0.4,
     svi_strength: float = 1.0,
+    long_steps: int = 6,
 ) -> dict:
     """
     Returns a ComfyUI API-format workflow dict (for POST /prompt).
@@ -103,13 +113,23 @@ def build_wan_i2v_workflow(
     n_unet_l = node("UNETLoader", {"unet_name": "wan/WAN_Low.safetensors",  "weight_dtype": "default"})
 
     # ── shared: prompts ──────────────────────────────────────
-    # Prepend motion control prefix to every prompt for smoother, natural movement
-    MOTION_PREFIX = (
-        "cinematic, extremely slow and deliberate movement, slow motion, languid pace, "
-        "smooth natural motion, static camera, no sudden movements, no fast gestures, "
-        "no camera shake, no teleporting limbs, fluid unhurried body motion, "
-        "hands away from genitals, not touching penis, "
-    )
+    # Prepend motion control prefix to every prompt for smoother, natural movement.
+    # Long mode is for hand-on-cock action scenes (stroke, spin), so it drops the
+    # "hands away / not touching penis" clause and the heavy slow-motion language.
+    if long_clip:
+        MOTION_PREFIX = (
+            "cinematic, smooth natural motion, static camera, no camera shake, "
+            "no teleporting limbs, fluid body motion, "
+        )
+        if negative_prompt == DEFAULT_NEGATIVE:
+            negative_prompt = LONG_NEGATIVE
+    else:
+        MOTION_PREFIX = (
+            "cinematic, extremely slow and deliberate movement, slow motion, languid pace, "
+            "smooth natural motion, static camera, no sudden movements, no fast gestures, "
+            "no camera shake, no teleporting limbs, fluid unhurried body motion, "
+            "hands away from genitals, not touching penis, "
+        )
     # Skip motion prefix for static/frozen shots — it fights against "no movement" intent
     use_prefix = not any(w in positive_prompt.lower() for w in ("frozen", "static portrait", "no movement whatsoever", "completely frozen"))
     n_pos = node("CLIPTextEncode", {"clip": [n_clip, 0], "text": (MOTION_PREFIX if use_prefix else "") + positive_prompt})
@@ -191,18 +211,19 @@ def build_wan_i2v_workflow(
 
     # ── KSamplers (two-pass: high noise then low noise) ──────
     if long_clip:
-        total_steps = 6
+        total_steps = long_steps
+        mid = long_steps // 2
         n_ks1 = node("KSamplerAdvanced", {
             "model": [n_samp_h, 0], "positive": [n_i2v, 0], "negative": [n_i2v, 1],
             "latent_image": [n_i2v, 2], "add_noise": "enable", "noise_seed": seed,
-            "steps": 6, "cfg": 1.5, "sampler_name": "euler", "scheduler": "beta",
-            "start_at_step": 0, "end_at_step": 3, "return_with_leftover_noise": "enable",
+            "steps": long_steps, "cfg": 1.5, "sampler_name": "euler", "scheduler": "beta",
+            "start_at_step": 0, "end_at_step": mid, "return_with_leftover_noise": "enable",
         })
         n_ks2 = node("KSamplerAdvanced", {
             "model": [n_samp_l, 0], "positive": [n_i2v, 0], "negative": [n_i2v, 1],
             "latent_image": [n_ks1, 0], "add_noise": "disable", "noise_seed": seed,
-            "steps": 6, "cfg": 1.5, "sampler_name": "euler", "scheduler": "beta",
-            "start_at_step": 3, "end_at_step": 6, "return_with_leftover_noise": "disable",
+            "steps": long_steps, "cfg": 1.5, "sampler_name": "euler", "scheduler": "beta",
+            "start_at_step": mid, "end_at_step": long_steps, "return_with_leftover_noise": "disable",
         })
     elif fast_mode:
         # 4 steps — matches LightX2V LoRA design (LoRA named "4steps"); confirmed better than 6
