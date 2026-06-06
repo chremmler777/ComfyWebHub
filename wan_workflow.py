@@ -36,6 +36,10 @@ CONTENT_LORAS = {
 LIGHTX2V_HIGH = "wan/wan_lightx2v_4steps_high_noise.safetensors"
 LIGHTX2V_LOW  = "wan/wan_lightx2v_4steps_low_noise.safetensors"
 
+# SVI 2.0 Pro long-video LoRAs (fp16 rank-128). Auto-loaded only in long mode.
+SVI_HIGH = "wan/SVI_v2_PRO_Wan2.2-I2V-A14B_HIGH_lora_rank_128_fp16.safetensors"
+SVI_LOW  = "wan/SVI_v2_PRO_Wan2.2-I2V-A14B_LOW_lora_rank_128_fp16.safetensors"
+
 
 def build_wan_i2v_workflow(
     image_filename: str,
@@ -55,6 +59,9 @@ def build_wan_i2v_workflow(
     context_windows: bool | None = None,
     context_length: int = 81,
     context_overlap: int = 16,
+    long_clip: bool = False,
+    lightx2v_strength: float = 0.4,
+    svi_strength: float = 1.0,
 ) -> dict:
     """
     Returns a ComfyUI API-format workflow dict (for POST /prompt).
@@ -113,34 +120,34 @@ def build_wan_i2v_workflow(
     n_end_img = node("LoadImage", {"image": end_image_filename}) if end_image_filename else None
 
     # ── build LoRA chains ────────────────────────────────────
-    def build_lora_chain(base_model_id: str, lx2v_lora: str | None, content_loras_for_variant: list[tuple[str, float]]) -> str:
-        """Chain: base → [lightx2v] → [content loras...]. Returns final model node id."""
+    def build_lora_chain(base_model_id: str, prefix_loras: list[tuple[str, float]],
+                         content_loras_for_variant: list[tuple[str, float]]) -> str:
+        """Chain: base → [prefix loras (lightx2v, svi)] → [content loras...]."""
         cur = base_model_id
-        if lx2v_lora:
-            cur = node("LoraLoaderModelOnly", {
-                "model": [cur, 0], "lora_name": lx2v_lora, "strength_model": 1.0,
-            })
-        for lname, strength in content_loras_for_variant:
+        for lname, strength in prefix_loras + content_loras_for_variant:
             cur = node("LoraLoaderModelOnly", {
                 "model": [cur, 0], "lora_name": lname, "strength_model": strength,
             })
         return cur
 
-    # Build content LoRA name lists for high/low
-    content_high = []
-    content_low  = []
+    content_high, content_low = [], []
     for base_name, strength in content_loras:
         if base_name in CONTENT_LORAS:
             h, l = CONTENT_LORAS[base_name]
             content_high.append((h, strength))
             content_low.append((l, strength))
 
-    if fast_mode:
-        n_model_h = build_lora_chain(n_unet_h, LIGHTX2V_HIGH, content_high)
-        n_model_l = build_lora_chain(n_unet_l, LIGHTX2V_LOW,  content_low)
-    else:
-        n_model_h = build_lora_chain(n_unet_h, None, content_high)
-        n_model_l = build_lora_chain(n_unet_l, None, content_low)
+    prefix_high: list[tuple[str, float]] = []
+    prefix_low:  list[tuple[str, float]] = []
+    if long_clip:
+        prefix_high += [(LIGHTX2V_HIGH, lightx2v_strength), (SVI_HIGH, svi_strength)]
+        prefix_low  += [(LIGHTX2V_LOW,  lightx2v_strength), (SVI_LOW,  svi_strength)]
+    elif fast_mode:
+        prefix_high.append((LIGHTX2V_HIGH, 1.0))
+        prefix_low.append((LIGHTX2V_LOW, 1.0))
+
+    n_model_h = build_lora_chain(n_unet_h, prefix_high, content_high)
+    n_model_l = build_lora_chain(n_unet_l, prefix_low,  content_low)
 
     # ── ModelSamplingSD3 ─────────────────────────────────────
     shift = 8.0
@@ -153,7 +160,7 @@ def build_wan_i2v_workflow(
     # `context_length`-frame windows and blends them — VRAM stays at one-window
     # cost regardless of total length. standard_static avoids the WAN 2.2
     # uniform-schedule "ping-pong" motion-reversal artifact.
-    cw_enabled = context_windows if context_windows is not None else (length > 81)
+    cw_enabled = False if long_clip else (context_windows if context_windows is not None else (length > 81))
     if cw_enabled:
         cw_args = {
             "context_length":   context_length,
@@ -183,7 +190,21 @@ def build_wan_i2v_workflow(
     n_i2v = node("WanImageToVideo", i2v_inputs)
 
     # ── KSamplers (two-pass: high noise then low noise) ──────
-    if fast_mode:
+    if long_clip:
+        total_steps = 6
+        n_ks1 = node("KSamplerAdvanced", {
+            "model": [n_samp_h, 0], "positive": [n_i2v, 0], "negative": [n_i2v, 1],
+            "latent_image": [n_i2v, 2], "add_noise": "enable", "noise_seed": seed,
+            "steps": 6, "cfg": 1.5, "sampler_name": "euler", "scheduler": "beta",
+            "start_at_step": 0, "end_at_step": 3, "return_with_leftover_noise": "enable",
+        })
+        n_ks2 = node("KSamplerAdvanced", {
+            "model": [n_samp_l, 0], "positive": [n_i2v, 0], "negative": [n_i2v, 1],
+            "latent_image": [n_ks1, 0], "add_noise": "disable", "noise_seed": seed,
+            "steps": 6, "cfg": 1.5, "sampler_name": "euler", "scheduler": "beta",
+            "start_at_step": 3, "end_at_step": 6, "return_with_leftover_noise": "disable",
+        })
+    elif fast_mode:
         # 4 steps — matches LightX2V LoRA design (LoRA named "4steps"); confirmed better than 6
         # beta scheduler + shift 8.0 reduces flickering vs simple/shift 5.0
         total_steps = 4
