@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>keeper-web · ★★★ gallery</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #111; color: #ddd; }
+  header { position: sticky; top: 0; background: #1a1a1a; border-bottom: 1px solid #333; padding: 8px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; z-index: 10; }
+  header a, header button { background: #222; color: #ddd; border: 1px solid #444; padding: 4px 8px; border-radius: 3px; font: inherit; text-decoration: none; cursor: pointer; }
+  header a:hover, header button:hover { background: #333; }
+  .stat { color: #888; font-size: 0.9em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; padding: 6px; }
+  .card { position: relative; background: #1a1a1a; border: 2px solid gold; border-radius: 3px; overflow: hidden; aspect-ratio: 904 / 1400; box-shadow: 0 0 0 2px gold, 0 0 12px 2px rgba(255,215,0,0.3); cursor: pointer; }
+  .card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .label { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.85)); padding: 18px 6px 4px; font-size: 0.75em; pointer-events: none; }
+  .card .label .char { color: #4af; font-weight: bold; }
+  .star-crown { position: absolute; top: 4px; left: 6px; font-size: 1.15em; color: gold; text-shadow: 0 1px 4px #000; z-index: 6; pointer-events: none; }
+  .badges { position: absolute; top: 4px; right: 4px; display: flex; gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
+  .badge { background: rgba(0,0,0,0.7); padding: 2px 6px; border-radius: 3px; font-size: 0.7em; }
+  .badge.hq { background: #4af; color: #111; }
+  .badge.hq.done { background: #2a7; color: #fff; }
+  .badge.pipeline { font-size: 0.65em; padding: 1px 4px; border-radius: 2px; background: #444; color: #ccc; }
+  .badge.pipeline.ril55 { background: #1a4a1a; color: #4f9; border: 1px solid #2a6a2a; }
+  .badge.pipeline.ilp  { background: #1a2a4a; color: #7af; border: 1px solid #2a4a7a; }
+  .badge.pipeline.pony { background: #2a1a3a; color: #c9f; border: 1px solid #4a2a6a; }
+  .badge.pipeline.ilv5 { background: #3a2a1a; color: #fa8; border: 1px solid #6a4a2a; }
+  .card .sim-btn  { position: absolute; bottom: 28px; right: 6px; background: #e84; color: #111; border: none; padding: 4px 10px; border-radius: 3px; font-weight: bold; cursor: pointer; font-size: 0.75em; z-index: 5; }
+  .card .sim-btn:hover { background: #f96; }
+  .card .sim-btn.queued { background: #4c4; cursor: default; }
+  .card .hq-btn  { position: absolute; bottom: 28px; left: 6px; background: #48f; color: #fff; border: none; padding: 4px 8px; border-radius: 3px; font-weight: bold; cursor: pointer; font-size: 0.75em; z-index: 5; }
+  .card .hq-btn:hover { background: #6af; }
+  .card .hq-btn.queued { background: #4c4; cursor: default; }
+  /* Modal */
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: none; align-items: center; justify-content: center; z-index: 100; flex-direction: column; padding: 20px; gap: 12px; }
+  .modal.show { display: flex; }
+  .modal img { max-width: 85vw; max-height: 72vh; object-fit: contain; cursor: pointer; }
+  .modal .info { color: #aaa; font-size: 0.9em; text-align: center; }
+  .modal .btn-row { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .modal .btn-row button { border: none; padding: 7px 16px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.95em; }
+  .btn-sim   { background: #e84; color: #111; }
+  .btn-sim:hover { background: #f96; }
+  .btn-hq    { background: #48f; color: #fff; }
+  .btn-hq:hover { background: #6af; }
+  .btn-ril55 { background: #1a4a1a; color: #4f9; border: 1px solid #2a6a2a !important; }
+  .btn-ril55:hover { background: #2a6a2a; }
+  .btn-pag   { background: #7af; color: #111; }
+  .btn-pag:hover { background: #9cf; }
+  button:disabled { background: #555 !important; color: #888 !important; cursor: wait !important; border-color: #444 !important; }
+  .modal-toast { color: #4c4; font-size: 0.85em; font-weight: bold; min-height: 1.2em; text-align: center; }
+  .empty { text-align: center; color: #666; padding: 80px 20px; font-size: 1.2em; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #4c4; color: #111; padding: 8px 16px; border-radius: 3px; font-weight: bold; z-index: 200; display: none; }
+  select { background: #222; color: #ddd; border: 1px solid #444; padding: 4px 8px; border-radius: 3px; font: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/">← by character</a>
+  <a href="/latest">latest</a>
+  <span style="color:gold;font-weight:bold">★★★ gallery</span>
+  <select id="charFilter"><option value="all">all characters</option></select>
+  <select id="plFilter">
+    <option value="all">all pipelines</option>
+    <option value="RIL55">RIL55</option>
+    <option value="RIL55+P">RIL55+P</option>
+    <option value="IL+P">IL+P</option>
+    <option value="Pony17">Pony17</option>
+    <option value="Pony16">Pony16</option>
+  </select>
+  <button id="refreshBtn">refresh</button>
+  <span class="stat" id="stat"></span>
+</header>
+<div class="grid" id="grid"></div>
+
+<div class="modal" id="modal">
+  <img id="mImg">
+  <div class="info" id="mInfo"></div>
+  <div class="btn-row">
+    <button class="btn-sim"   id="mSim">similar ×2</button>
+    <button class="btn-ril55" id="mRil">→ RIL55 IL ×2</button>
+    <button class="btn-hq"    id="mHq">▲HQ</button>
+    <button class="btn-pag"   id="mPag">PAG redo</button>
+    <button style="background:#333;color:#aaa" id="mClose">close</button>
+  </div>
+  <div class="modal-toast" id="mToast"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let data = [];
+let allData = [];
+let activeIdx = -1;
+
+function $ (id) { return document.getElementById(id); }
+
+function plCls(p) {
+  return p === 'RIL55' ? 'ril55' : p === 'RIL55+P' ? 'ilp' :
+         (p==='Pony17'||p==='Pony16'||p==='Pony') ? 'pony' : 'ilv5';
+}
+
+function toast(msg, ok=true) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.style.background = ok ? '#4c4' : '#c44';
+  t.style.display = 'block';
+  clearTimeout(t._t);
+  t._t = setTimeout(() => { t.style.display = 'none'; }, 2500);
+}
+
+function mToast(msg) {
+  $('mToast').textContent = msg;
+  setTimeout(() => { if ($('mToast').textContent === msg) $('mToast').textContent = ''; }, 4000);
+}
+
+// ── API calls ────────────────────────────────────────────────────────────────
+async function apiSimilar(char, name, pipeline='') {
+  const url = `/api/make_similar/${char}/${name}?count=2${pipeline ? '&pipeline='+pipeline : ''}`;
+  const r = await fetch(url, {method:'POST'});
+  return r.json();
+}
+async function apiHq(char, name) {
+  const r = await fetch(`/api/queue_hq/${char}/${name}`, {method:'POST'});
+  return r.json();
+}
+async function apiPag(char, name) {
+  const r = await fetch(`/api/redo_pag/${char}/${name}`, {method:'POST'});
+  return r.json();
+}
+
+// ── Load & render ────────────────────────────────────────────────────────────
+async function load() {
+  const r = await fetch('/api/stars');
+  allData = await r.json();
+  populateFilters();
+  render();
+}
+
+function populateFilters() {
+  const chars = [...new Set(allData.map(x => x.character))].sort();
+  $('charFilter').innerHTML = '<option value="all">all characters</option>' +
+    chars.map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+function filtered() {
+  const cf = $('charFilter').value;
+  const pf = $('plFilter').value;
+  return allData.filter(x =>
+    (cf === 'all' || x.character === cf) &&
+    (pf === 'all' || x.pipeline === pf)
+  );
+}
+
+function render() {
+  data = filtered();
+  $('stat').textContent = `${data.length} image${data.length !== 1 ? 's' : ''}`;
+  const grid = $('grid');
+  if (!data.length) {
+    grid.innerHTML = '<div class="empty">No ★★★ images matching filter.</div>';
+    return;
+  }
+  grid.innerHTML = '';
+  data.forEach((x, i) => {
+    const el = document.createElement('div');
+    el.className = 'card';
+    const pl = x.pipeline || '';
+    const plBadge = pl ? `<span class="badge pipeline ${plCls(pl)}" title="${x.pipeline_name||''}">${pl}</span>` : '';
+    const hqBadge = x.hq ? `<span class="badge hq ${x.hq_done?'done':''}">${x.hq}</span>` : '';
+    el.innerHTML = `
+      <img src="/img/${x.character}/${x.file}" loading="lazy">
+      <div class="star-crown">★★★</div>
+      <div class="badges">${hqBadge}${plBadge}</div>
+      <button class="hq-btn">▲HQ</button>
+      <button class="sim-btn">similar</button>
+      <div class="label"><span class="char">${x.character}</span> · ${x.name}</div>
+    `;
+    el.querySelector('img').onclick = () => openModal(i);
+    el.querySelector('.label').onclick = () => openModal(i);
+    el.querySelector('.hq-btn').onclick = e => { e.stopPropagation(); cardHq(x, e.currentTarget); };
+    el.querySelector('.sim-btn').onclick = e => { e.stopPropagation(); cardSim(x, e.currentTarget); };
+    grid.appendChild(el);
+  });
+}
+
+async function cardHq(x, btn) {
+  btn.textContent = '▲…'; btn.disabled = true;
+  const d = await apiHq(x.character, x.name);
+  if (d.ok) { btn.textContent = '✓'; toast(`▲HQ queued`); }
+  else { btn.textContent = '▲HQ'; btn.disabled = false; toast(d.error||'HQ failed', false); }
+}
+async function cardSim(x, btn) {
+  btn.textContent = 'queued'; btn.classList.add('queued');
+  const d = await apiSimilar(x.character, x.name);
+  if (!d.ok) { btn.textContent = 'similar'; btn.classList.remove('queued'); toast(d.error||'failed', false); }
+  else toast(`similar queued`);
+}
+
+// ── Modal ────────────────────────────────────────────────────────────────────
+function openModal(i) {
+  activeIdx = i;
+  const x = data[i];
+  $('mImg').src = `/img/${x.character}/${x.file}`;
+  $('mInfo').textContent = `${x.character} · ${x.name}${x.pipeline_name ? ' · '+x.pipeline_name : ''}`;
+  $('mToast').textContent = '';
+  resetModalBtns();
+  $('modal').classList.add('show');
+}
+function closeModal() { $('modal').classList.remove('show'); }
+function resetModalBtns() {
+  for (const id of ['mSim','mRil','mHq','mPag']) {
+    const b = $(id); b.disabled = false;
+    b.textContent = id==='mSim' ? 'similar ×2' : id==='mRil' ? '→ RIL55 IL ×2' : id==='mHq' ? '▲HQ' : 'PAG redo';
+  }
+}
+
+$('mClose').onclick = closeModal;
+$('mImg').onclick = closeModal;
+$('modal').onclick = e => { if (e.target === $('modal')) closeModal(); };
+
+$('mSim').onclick = async () => {
+  if (activeIdx < 0) return;
+  const x = data[activeIdx]; const btn = $('mSim');
+  btn.disabled = true; btn.textContent = 'queuing…';
+  const d = await apiSimilar(x.character, x.name);
+  if (d.ok) { btn.textContent = 'queued ✓'; mToast(`${d.count} renders queued`); }
+  else { btn.disabled = false; btn.textContent = 'similar ×2'; mToast(d.error||'failed'); }
+};
+$('mRil').onclick = async () => {
+  if (activeIdx < 0) return;
+  const x = data[activeIdx]; const btn = $('mRil');
+  btn.disabled = true; btn.textContent = 'queuing…';
+  const d = await apiSimilar(x.character, x.name, 'ril55_il');
+  if (d.ok) { btn.textContent = 'queued ✓'; mToast(`RIL55 IL: ${d.count} renders queued`); }
+  else { btn.disabled = false; btn.textContent = '→ RIL55 IL ×2'; mToast(d.error||'failed'); }
+};
+$('mHq').onclick = async () => {
+  if (activeIdx < 0) return;
+  const x = data[activeIdx]; const btn = $('mHq');
+  btn.disabled = true; btn.textContent = '▲HQ…';
+  const d = await apiHq(x.character, x.name);
+  if (d.ok) { btn.textContent = 'queued ✓'; mToast(`HQ queued → ${d.num}`); }
+  else { btn.disabled = false; btn.textContent = '▲HQ'; mToast(d.error||'HQ failed'); }
+};
+$('mPag').onclick = async () => {
+  if (activeIdx < 0) return;
+  const x = data[activeIdx]; const btn = $('mPag');
+  btn.disabled = true; btn.textContent = 'queuing…';
+  const d = await apiPag(x.character, x.name);
+  if (d.ok) { btn.textContent = 'queued ✓'; mToast('PAG queued'); }
+  else { btn.disabled = false; btn.textContent = 'PAG redo'; mToast(d.error||'PAG failed'); }
+};
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+  if ($('modal').classList.contains('show')) {
+    if (e.key === 'ArrowRight') openModal((activeIdx+1) % data.length);
+    if (e.key === 'ArrowLeft')  openModal((activeIdx-1+data.length) % data.length);
+  }
+});
+
+$('charFilter').onchange = render;
+$('plFilter').onchange = render;
+$('refreshBtn').onclick = load;
+load();
+</script>
+</body>
+</html>

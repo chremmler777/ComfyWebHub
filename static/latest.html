@@ -1,0 +1,1170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>keeper-web · latest</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #111; color: #ddd; }
+  header { position: sticky; top: 0; background: #1a1a1a; border-bottom: 1px solid #333; padding: 8px 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; z-index: 10; }
+  header a, header button, header select { background: #222; color: #ddd; border: 1px solid #444; padding: 4px 8px; border-radius: 3px; font: inherit; text-decoration: none; }
+  header a:hover, header button:hover { background: #333; cursor: pointer; }
+  .stat { color: #888; font-size: 0.9em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; padding: 6px; }
+  .card { position: relative; background: #1a1a1a; border: 2px solid #333; border-radius: 3px; overflow: hidden; aspect-ratio: 904 / 1400; text-decoration: none; color: inherit; display: block; }
+  .card:hover { border-color: #4af; }
+  .card.active { border-color: #4af; box-shadow: 0 0 0 1px #4af; }
+  .card.keep { border-color: #4c4; }
+  .card.reject { border-color: #c44; opacity: 0.4; }
+  .card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .label { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.85)); padding: 18px 6px 4px; font-size: 0.75em; }
+  .card .label .char { color: #4af; font-weight: bold; }
+  .card .date { position: absolute; top: 4px; left: 4px; background: rgba(0,0,0,0.7); padding: 2px 6px; border-radius: 3px; font-size: 0.7em; color: #aaa; }
+  .badges { position: absolute; top: 4px; right: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+  .badge { background: rgba(0,0,0,0.7); padding: 2px 6px; border-radius: 3px; font-size: 0.7em; }
+  .badge.keep { background: #4c4; color: #111; font-weight: bold; }
+  .badge.hq { background: #4af; color: #111; }
+  .badge.hq.done { background: #2a7; color: #fff; }
+  .badge.hq.done::after { content: ' ✓'; }
+  .badge.hq.pending::after { content: ' ⏳'; }
+  .badge.note { background: #fc4; color: #111; }
+  .badge.regen { background: #e84; color: #111; font-weight: bold; }
+  .badge.civitai { background: #07f; color: #fff; font-weight: bold; }
+  .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: none; align-items: center; justify-content: center; z-index: 100; flex-direction: column; padding: 20px; gap: 12px; }
+  .lightbox.show { display: flex; }
+  .zoomwrap { max-width: 90vw; max-height: 85vh; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; cursor: zoom-in; }
+  .zoomwrap.zoomed { cursor: grab; }
+  .zoomwrap.dragging { cursor: grabbing; }
+  .zoomwrap img { max-width: 90vw; max-height: 70vh; object-fit: contain; transform-origin: center center; transition: transform 0.05s linear; user-select: none; -webkit-user-drag: none; }
+  .lightbox .info { color: #aaa; font-size: 0.9em; text-align: center; }
+  .lightbox .info .hint { color: #666; font-size: 0.85em; margin-top: 4px; }
+  .lightbox .info.mark { color: #ddd; font-size: 0.95em; }
+  #noteInput { background: #222; color: #ddd; border: 1px solid #444; padding: 8px; width: 400px; max-width: 80vw; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #4c4; color: #111; padding: 8px 16px; border-radius: 3px; font-weight: bold; z-index: 200; }
+  .similar-btn { background: #e84; color: #111; border: none; padding: 6px 16px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 1em; }
+  .similar-btn:hover { background: #f96; }
+  .similar-btn:disabled { background: #666; cursor: wait; }
+  .similar-row { display: flex; gap: 10px; align-items: center; justify-content: center; flex-shrink: 0; }
+  .similar-toast { color: #4c4; font-size: 0.9em; font-weight: bold; }
+  .pag-btn { background: #7af; color: #111; border: none; padding: 6px 14px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 1em; }
+  .pag-btn:hover { background: #9cf; }
+  .pag-btn:disabled { background: #666; cursor: wait; }
+  .animate-btn { background: #4c4; color: #111; border: none; padding: 6px 14px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 1em; }
+  .animate-btn:hover { background: #6e6; }
+  .animate-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 300; display: none; align-items: center; justify-content: center; }
+  .animate-overlay.show { display: flex; }
+  .animate-box { background: #1a1a1a; border: 1px solid #333; border-radius: 6px; padding: 20px; width: 480px; max-width: 95vw; display: flex; flex-direction: column; gap: 12px; }
+  .animate-box h3 { margin: 0; color: #4c4; font-size: 1em; }
+  .animate-box textarea { background: #222; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 8px; font: inherit; font-size: 0.9em; min-height: 80px; resize: vertical; }
+  .animate-box textarea:focus { outline: none; border-color: #4c4; }
+  .animate-box .arow { display: flex; gap: 8px; }
+  .animate-box select { flex: 1; background: #222; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 5px; font: inherit; font-size: 0.85em; }
+  .animate-box .go-btn { background: #4c4; color: #111; border: none; padding: 8px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 1em; }
+  .animate-box .go-btn:hover { background: #6e6; }
+  .animate-box .go-btn:disabled { background: #555; cursor: wait; }
+  .animate-box .cancel-btn { background: #333; color: #aaa; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 1em; }
+  .animate-status { font-size: 0.85em; color: #888; min-height: 1.2em; }
+  #nowRendering { display:none; position:fixed; bottom:16px; right:16px; background:#1a1a2a; border:2px solid #4af; border-radius:8px; padding:10px 12px; z-index:150; width:220px; box-shadow:0 4px 20px rgba(0,100,255,0.4); }
+  #nowRendering .nr-label { font-size:0.85em; color:#4af; margin-bottom:6px; font-weight:bold; letter-spacing:0.05em; }
+  #previewImg { width:100%; border-radius:4px; display:none; margin-bottom:6px; }
+  #progressBar { background:#333; border-radius:3px; height:8px; overflow:hidden; }
+  #progressFill { background:linear-gradient(90deg,#4af,#7af); height:100%; width:0%; transition:width 0.15s linear; }
+  #progressText { font-size:0.78em; color:#adf; text-align:center; margin-top:5px; font-weight:bold; }
+  .card .similar-card-btn { position: absolute; bottom: 28px; right: 6px; background: #e84; color: #111; border: none; padding: 4px 10px; border-radius: 3px; font-weight: bold; cursor: pointer; font-size: 0.75em; z-index: 5; }
+  .card .similar-card-btn:hover { background: #f96; }
+  .card .similar-card-btn.queued { background: #4c4; cursor: default; }
+  .card .hq-card-btn { position: absolute; bottom: 28px; left: 6px; background: #48f; color: #fff; border: none; padding: 4px 8px; border-radius: 3px; font-weight: bold; cursor: pointer; font-size: 0.75em; z-index: 5; }
+  .card .hq-card-btn:hover { background: #6af; }
+  .card .hq-card-btn.queued { background: #4c4; cursor: default; }
+  .star-overlay { position: absolute; top: 4px; right: 6px; font-size: 1.15em; line-height: 1; text-shadow: 0 1px 4px #000; z-index: 6; pointer-events: none; }
+  .card.stars-3 { box-shadow: 0 0 0 2px gold, 0 0 12px 2px rgba(255,215,0,0.3); }
+  .badge.stars { background: gold; color: #111; font-weight: bold; }
+  .badge.pipeline { font-size: 0.65em; padding: 1px 4px; border-radius: 2px; background: #444; color: #ccc; }
+  .badge.pipeline.ril55 { background: #1a4a1a; color: #4f9; border: 1px solid #2a6a2a; }
+  .badge.pipeline.ilp { background: #1a2a4a; color: #7af; border: 1px solid #2a4a7a; }
+  .badge.pipeline.pony { background: #2a1a3a; color: #c9f; border: 1px solid #4a2a6a; }
+  .badge.pipeline.ilv5 { background: #3a2a1a; color: #fa8; border: 1px solid #6a4a2a; }
+  /* HQ compare slider */
+  .cmp-btn { background: #4af; color: #111; border: none; padding: 6px 14px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 1em; }
+  .cmp-btn:hover { background: #7cf; }
+  .cmp-btn:disabled { background: #555; color: #888; cursor: default; }
+  #cmpWrap { display: none; position: relative; width: 90vw; max-height: 70vh; overflow: hidden; cursor: ew-resize; user-select: none; }
+  #cmpWrap.show { display: block; }
+  #cmpWrap img { display: block; width: 100%; height: 100%; max-height: 70vh; object-fit: contain; }
+  #cmpHq { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
+  #cmpDivider { position: absolute; top: 0; width: 2px; background: rgba(255,255,255,0.75); height: 100%; transform: translateX(-1px); pointer-events: none; }
+  #cmpHandle { position: absolute; top: 50%; width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,0.9); display: flex; align-items: center; justify-content: center; font-size: 13px; color: #222; transform: translate(-50%,-50%); pointer-events: none; }
+  #cmpLabels { position: absolute; bottom: 6px; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 10px; font-size: 11px; pointer-events: none; }
+  #cmpLabels span:first-child { color: #f90; } #cmpLabels span:last-child { color: #4af; }
+  .card .bakeoff-badge { position: absolute; top: 4px; left: 50px; background: #e84; color: #111; padding: 2px 6px; border-radius: 3px; font-size: 0.7em; font-weight: bold; }
+  /* Bake-off grid — N variants side by side */
+  .bakeoff { display: none; gap: 10px; max-width: 97vw; max-height: 82vh; overflow-x: auto; padding: 4px; }
+  .bakeoff.show { display: flex; }
+  .bakeoff .pane { flex: 0 0 auto; min-width: 260px; max-width: 440px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .bakeoff .pane img { max-width: 100%; max-height: 72vh; object-fit: contain; cursor: pointer; border: 2px solid #333; border-radius: 3px; display: block; }
+  .bakeoff .pane.active img { border-color: #4af; box-shadow: 0 0 0 1px #4af; }
+  .bakeoff .pane.keep img { border-color: #4c4; }
+  .bakeoff .pane.reject img { border-color: #c44; opacity: 0.4; }
+  .bakeoff .pane .cap { font-size: 0.72em; color: #aaa; text-align: center; max-width: 100%; line-height: 1.3; }
+  .bakeoff .pane .variant { color: #fc4; font-weight: bold; font-size: 1.1em; }
+  .bakeoff .pane .peek { color: #8af; font-family: monospace; font-size: 0.92em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .bakeoff .pane .badges-inline { display: inline-flex; gap: 3px; margin-left: 4px; }
+  .bakeoff .pane .badges-inline .b { padding: 0 4px; border-radius: 2px; font-size: 0.85em; font-weight: bold; }
+  .bakeoff .pane .badges-inline .b.k { background: #4c4; color: #111; }
+  .bakeoff .pane .badges-inline .b.hq { background: #4af; color: #111; }
+  .bakeoff .pane .badges-inline .b.n { background: #fc4; color: #111; }
+  /* Workflow peek panel */
+  #peekPanel { background: #151515; border: 1px solid #333; border-radius: 3px; padding: 8px 12px; font-family: monospace; font-size: 0.82em; color: #bbb; max-width: 80vw; display: none; white-space: pre-wrap; line-height: 1.4; }
+  #peekPanel.show { display: block; }
+  #peekPanel .k { color: #fc4; }
+  #peekPanel .v { color: #8af; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/">← by character</a>
+  <a href="/stars">★★★ gallery</a>
+  <span class="stat">latest gens across all characters</span>
+  <select id="limitSel">
+    <option value="30">30</option>
+    <option value="60" selected>60</option>
+    <option value="120">120</option>
+    <option value="240">240</option>
+    <option value="700">700</option>
+  </select>
+  <select id="charFilter"><option value="">all characters</option></select>
+  <button id="refreshBtn">refresh</button>
+  <button id="submitBtn" style="background:#4c4;color:#111;font-weight:bold">submit all</button>
+  <span class="stat" id="stat"></span>
+  <span class="stat" id="submitStat"></span>
+  <span class="stat" id="comfyQ" style="margin-left:auto; color:#fc4; font-weight:bold"></span>
+  <span id="renderingDot" style="display:none; color:#4af; font-weight:bold; font-size:0.9em;">● rendering <span id="renderStep"></span></span>
+  <span class="stat" style="color:#666">Z keep · X reject · C note · Space ★ · S similar · P PAG · 1/2/3 hq · B bake-off · I peek</span>
+</header>
+<div class="grid" id="grid"></div>
+<div class="lightbox" id="lightbox">
+  <div class="zoomwrap" id="zoomwrap"><img id="lbImg"><div id="lbStars" style="position:absolute;top:8px;right:12px;font-size:1.6em;color:gold;text-shadow:0 2px 6px #000;pointer-events:none;z-index:5"></div></div>
+  <div id="cmpWrap">
+    <img id="cmpOrig" alt="original">
+    <img id="cmpHq"   alt="hq" style="clip-path:inset(0 50% 0 0)">
+    <div id="cmpDivider" style="left:50%"><div id="cmpHandle">⇔</div></div>
+    <div id="cmpLabels"><span>◀ ORIGINAL</span><span>HQ ▶</span></div>
+  </div>
+  <div class="bakeoff" id="bakeoff"></div>
+  <div class="info" id="lbInfo"></div>
+  <div class="info mark" id="lbMark"></div>
+  <div id="peekPanel"></div>
+  <div class="similar-row">
+    <button class="similar-btn" id="similarBtn">make similar ×2</button>
+    <button class="pag-btn" id="pagBtn" onclick="redoPag()">PAG redo</button>
+    <button class="animate-btn" id="animateBtn" onclick="openAnimate()">▶ animate</button>
+    <button class="cmp-btn" id="cmpBtn" disabled title="H">⇔ HQ</button>
+    <span class="similar-toast" id="similarToast"></span>
+  </div>
+  <input id="noteInput" placeholder="note (Enter to save, Esc to cancel)">
+  <div class="info hint">Z keep · X reject · C note · Space ★ · S similar · P PAG · H compare HQ · 1 face · 2 hand-cock · 3 full-2pass · B bake-off · I peek · ← → step · scroll zoom · dbl-click reset</div>
+</div>
+
+<!-- Live preview widget (ComfyUI WebSocket) -->
+<div id="nowRendering">
+  <div class="nr-label">now rendering</div>
+  <img id="previewImg" alt="">
+  <div id="progressBar"><div id="progressFill"></div></div>
+  <div id="progressText"></div>
+</div>
+
+<script>
+const grid = document.getElementById('grid');
+const stat = document.getElementById('stat');
+const limitSel = document.getElementById('limitSel');
+const charFilter = document.getElementById('charFilter');
+let currentData = [], lbIdx = -1, gridActive = 0, noteOpen = false;
+const pendingSimilar = new Set(); // track images with queued similar renders
+const HQ_MAP = {1:"face", 2:"hand-cock", 3:"full-2pass"};
+// Bake-off + peek state
+let bakeOn = false, bakeGroupKey = null, bakeIdx = 0;
+let peekFullOn = false;
+const peekCache = new Map(); // "character/name" -> peek json
+const groupByKey = new Map(); // "char::name" -> groupKey ("char::prefix")
+const groupMembers = new Map(); // groupKey -> [indices into currentData]
+
+// ---- Bake-off group detection (latest view is cross-character) ----
+function stemNoCounter(name) {
+  return name.replace(/_\d{5,}_?$/, "");
+}
+function hasLetter(s) { return /[a-zA-Z]/.test(s); }
+function detectGroups() {
+  groupByKey.clear();
+  groupMembers.clear();
+  // Group scope: per character. Build prefix index per character.
+  const byChar = new Map(); // char -> [{idx, stem}]
+  currentData.forEach((x, idx) => {
+    const stem = stemNoCounter(x.name);
+    if (!byChar.has(x.character)) byChar.set(x.character, []);
+    byChar.get(x.character).push({idx, stem, name: x.name});
+  });
+  for (const [ch, entries] of byChar) {
+    const stems = entries.map(e => e.stem);
+    // Prefix index
+    const prefixHits = new Map(); // prefix -> Set(stem)
+    for (const s of stems) {
+      const parts = s.split("_");
+      for (let i = 1; i < parts.length; i++) {
+        const p = parts.slice(0, i).join("_") + "_";
+        if (p.length < 4) continue;
+        if (!prefixHits.has(p)) prefixHits.set(p, new Set());
+        prefixHits.get(p).add(s);
+      }
+    }
+    // Shortest-matching-prefix grouping
+    for (const e of entries) {
+      const parts = e.stem.split("_");
+      let chosen = null;
+      for (let i = 1; i < parts.length; i++) {
+        const p = parts.slice(0, i).join("_") + "_";
+        if (p.length < 4) continue;
+        const hits = prefixHits.get(p);
+        if (!hits || hits.size < 2) continue;
+        const rests = new Set();
+        for (const h of hits) rests.add(h.slice(p.length));
+        if (rests.size < 2) continue;
+        chosen = p;
+        break;
+      }
+      if (!chosen) continue;
+      const variant = e.stem.slice(chosen.length);
+      if (!hasLetter(variant)) continue;
+      const members = [...prefixHits.get(chosen)];
+      if (!members.every(m => hasLetter(m.slice(chosen.length)))) continue;
+      const groupKey = ch + "::" + chosen.replace(/_$/, "");
+      // Skip character-name-root groupings (e.g. "medusa::medusa")
+      if (groupKey === ch + "::" + ch) continue;
+      const itemKey = ch + "::" + e.name;
+      groupByKey.set(itemKey, groupKey);
+      if (!groupMembers.has(groupKey)) {
+        // Store indices of all members in currentData
+        const memberIdxs = entries
+          .filter(en => members.includes(en.stem))
+          .map(en => en.idx);
+        groupMembers.set(groupKey, memberIdxs);
+      }
+    }
+  }
+}
+function itemKey(x) { return x.character + "::" + x.name; }
+function groupOf(x) { return groupByKey.get(itemKey(x)); }
+function groupSizeFor(x) {
+  const g = groupOf(x);
+  return g ? (groupMembers.get(g)?.length || 0) : 0;
+}
+
+// ---- Workflow peek ----
+async function fetchPeek(character, name) {
+  const key = character + "/" + name;
+  if (peekCache.has(key)) return peekCache.get(key);
+  try {
+    const r = await fetch(`/api/peek/${character}/${name}`);
+    if (!r.ok) return null;
+    const p = await r.json();
+    peekCache.set(key, p);
+    return p;
+  } catch (e) { return null; }
+}
+function peekOneLine(p) {
+  if (!p) return "";
+  const bits = [];
+  if (p.seed != null) bits.push(`seed ${String(p.seed).slice(-8)}`);
+  if (p.cfg != null) bits.push(`cfg ${p.cfg}${p.cfg2 != null && p.cfg2 !== p.cfg ? "/"+p.cfg2 : ""}`);
+  if (p.sampler) bits.push(p.sampler);
+  if (p.steps != null) bits.push(`${p.steps}${p.steps2 ? "+"+p.steps2 : ""}st`);
+  if (p.cock_mode) bits.push(p.cock_mode);
+  if (p.has_pag) bits.push(`PAG@${p.pag_scale}`);
+  if (p.has_negpip) bits.push("NEGPIP");
+  return bits.join(" · ");
+}
+function peekFullHtml(p) {
+  if (!p) return "no metadata";
+  const lines = [];
+  const kv = (k, v) => `<span class="k">${k}:</span> <span class="v">${v}</span>`;
+  lines.push(kv("seed", p.seed));
+  lines.push(kv("cfg", `${p.cfg}${p.cfg2 != null ? " / "+p.cfg2 : ""}`));
+  lines.push(kv("sampler", `${p.sampler} ${p.scheduler||""}`));
+  lines.push(kv("steps", `${p.steps}${p.steps2 ? " + "+p.steps2 : ""}`));
+  lines.push(kv("mode", p.cock_mode));
+  if (p.checkpoint) lines.push(kv("ckpt", p.checkpoint));
+  if (p.has_pag) lines.push(kv("PAG", `scale=${p.pag_scale} block=${p.pag_block}`));
+  if (p.has_negpip) lines.push(kv("NegPip", "on"));
+  if (p.loras && p.loras.length) {
+    const ls = p.loras.map(l => `${l.name || l.slot}@${l.strength}`).join(", ");
+    lines.push(kv("loras", ls));
+  }
+  return lines.join("\n");
+}
+
+function fmtTime(mtime) {
+  const d = new Date(mtime * 1000);
+  const now = new Date();
+  const diffMs = now - d;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return 'now';
+  if (diffMin < 60) return diffMin + 'm ago';
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return diffH + 'h ago';
+  const diffD = Math.floor(diffH / 24);
+  if (diffD < 7) return diffD + 'd ago';
+  return d.toLocaleDateString();
+}
+
+async function load() {
+  const limit = limitSel.value;
+  const res = await fetch('/api/latest?limit=' + limit);
+  const data = await res.json();
+  const filterChar = charFilter.value;
+  const chars = new Set(data.map(x => x.character));
+  // refresh char filter dropdown
+  const cur = charFilter.value;
+  charFilter.innerHTML = '<option value="">all characters</option>' +
+    [...chars].sort().map(c => `<option value="${c}"${c===cur?' selected':''}>${c}</option>`).join('');
+  const filtered = filterChar ? data.filter(x => x.character === filterChar) : data;
+  // Clear pending similar flags when new images have arrived (count changed)
+  const newCounts = {};
+  for (const x of data) newCounts[x.character] = (newCounts[x.character] || 0) + 1;
+  if (currentData.length > 0) {
+    const oldCounts = {};
+    for (const x of currentData) oldCounts[x.character] = (oldCounts[x.character] || 0) + 1;
+    for (const c of Object.keys(newCounts)) {
+      if ((newCounts[c] || 0) > (oldCounts[c] || 0)) {
+        // New images for this character — clear all pending flags for it
+        for (const k of [...pendingSimilar]) { if (k.startsWith(c + '/')) pendingSimilar.delete(k); }
+      }
+    }
+  }
+  currentData = filtered;
+  detectGroups();
+  stat.textContent = `${filtered.length} shown · ${chars.size} characters`;
+  grid.innerHTML = filtered.map((x, i) => {
+    const cls = x.keep ? 'keep' : (x.reject ? 'reject' : '');
+    const badges = [];
+    if (x.keep) badges.push('<span class="badge keep">KEEP</span>');
+    if (x.hq) badges.push(`<span class="badge hq ${x.hq_done ? 'done' : 'pending'}">${x.hq}</span>`);
+    if (x.regen) badges.push('<span class="badge regen" title="regen requested">↻</span>');
+    else if (x.note) badges.push('<span class="badge note">note</span>');
+    if (x.civitai) badges.push('<span class="badge civitai" title="sent to CivitAI">↑C</span>');
+    if (x.pipeline) {
+      const cls = x.pipeline === 'RIL55' ? 'ril55' : x.pipeline === 'RIL55+P' ? 'ilp' :
+                  (x.pipeline==='Pony17'||x.pipeline==='Pony16'||x.pipeline==='Pony') ? 'pony' : 'ilv5';
+      badges.push(`<span class="badge pipeline ${cls}" title="${x.pipeline_name||''}">${x.pipeline}</span>`);
+    }
+    const simKey = `${x.character}/${x.name}`;
+    const hasPending = pendingSimilar.has(simKey);
+    const simBtn = hasPending
+      ? `<button class="similar-card-btn queued" data-char="${x.character}" data-name="${x.name}">queued</button>`
+      : `<button class="similar-card-btn" data-char="${x.character}" data-name="${x.name}">similar</button>`;
+    const gs = groupSizeFor(x);
+    const bakeBadge = gs >= 2 ? `<div class="bakeoff-badge">B×${gs}</div>` : '';
+    const starClass = x.stars === 3 ? 'stars-3' : '';
+    if (x.stars) badges.push(`<span class="badge stars">${'★'.repeat(x.stars)}</span>`);
+    const hqCardBtn = x.stars === 3
+      ? `<button class="hq-card-btn" data-char="${x.character}" data-name="${x.name}">▲HQ</button>`
+      : '';
+    return `<div class="card ${cls} ${starClass} ${i===gridActive?'active':''}" data-idx="${i}" title="${x.character} · ${x.name}">
+      <img src="/img/${x.character}/${x.file}" loading="lazy">
+      ${x.stars ? starStr(x.stars) : ''}
+      <div class="date">${fmtTime(x.mtime)}</div>
+      ${bakeBadge}
+      <div class="badges">${badges.join('')}</div>
+      ${simBtn}
+      ${hqCardBtn}
+      <div class="label"><span class="char">${x.character}</span> · ${x.name}</div>
+    </div>`;
+  }).join('');
+  grid.querySelectorAll('.card').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('.similar-card-btn')) return;
+      gridActive = +el.dataset.idx; openLightbox(gridActive);
+    });
+  });
+  grid.querySelectorAll('.similar-card-btn:not(.queued)').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      queueSimilarByName(btn.dataset.char, btn.dataset.name, btn);
+    });
+  });
+  grid.querySelectorAll('.hq-card-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      queueHq(btn.dataset.char, btn.dataset.name, btn);
+    });
+  });
+  if (gridActive >= currentData.length) gridActive = 0;
+}
+
+function setGridActive(i) {
+  gridActive = Math.max(0, Math.min(currentData.length - 1, i));
+  grid.querySelectorAll('.card').forEach(el => {
+    el.classList.toggle('active', +el.dataset.idx === gridActive);
+  });
+  const el = grid.querySelector('.card.active');
+  if (el) el.scrollIntoView({ block: 'nearest' });
+}
+function gridCols() {
+  const style = getComputedStyle(grid);
+  return style.gridTemplateColumns.split(' ').length || 1;
+}
+
+function starStr(n) {
+  if (!n) return '';
+  const colors = ['','#aaa','#cc6','gold'];
+  return `<div class="star-overlay" style="color:${colors[n]}">${'★'.repeat(n)}</div>`;
+}
+function renderCard(i) {
+  const x = currentData[i];
+  if (!x) return;
+  const el = grid.querySelector(`.card[data-idx="${i}"]`);
+  if (!el) return;
+  el.classList.toggle('keep', !!x.keep);
+  el.classList.toggle('reject', !!x.reject);
+  el.classList.toggle('stars-3', x.stars === 3);
+  // star overlay
+  const oldStar = el.querySelector('.star-overlay');
+  if (oldStar) oldStar.remove();
+  if (x.stars) el.insertAdjacentHTML('beforeend', starStr(x.stars));
+  // HQ button
+  const oldHq = el.querySelector('.hq-card-btn');
+  if (oldHq) oldHq.remove();
+  if (x.stars === 3) {
+    el.insertAdjacentHTML('beforeend', `<button class="hq-card-btn" data-char="${x.character}" data-name="${x.name}">▲HQ</button>`);
+    el.querySelector('.hq-card-btn').onclick = e => { e.stopPropagation(); queueHq(x.character, x.name, e.currentTarget); };
+  }
+  const badges = [];
+  if (x.keep) badges.push('<span class="badge keep">KEEP</span>');
+  if (x.stars) badges.push(`<span class="badge stars">${'★'.repeat(x.stars)}</span>`);
+  if (x.hq) badges.push(`<span class="badge hq ${x.hq_done ? 'done' : 'pending'}">${x.hq}</span>`);
+  if (x.regen) badges.push('<span class="badge regen" title="regen requested">↻</span>');
+  else if (x.note) badges.push('<span class="badge note">note</span>');
+  if (x.civitai) badges.push('<span class="badge civitai" title="sent to CivitAI">↑C</span>');
+  el.querySelector('.badges').innerHTML = badges.join('');
+}
+
+function fmtMark(x) {
+  const bits = [];
+  if (x.stars) bits.push('★'.repeat(x.stars));
+  if (x.keep) bits.push('KEEP');
+  if (x.reject) bits.push('REJECT');
+  if (x.hq) bits.push('hq=' + x.hq + (x.hq_done ? ' ✓' : ' ⏳'));
+  if (x.regen) bits.push('REGEN↻');
+  if (x.note) bits.push('"' + x.note + '"');
+  return bits.join(' · ') || '—';
+}
+
+function updateLbMark() {
+  if (lbIdx < 0) return;
+  const x = currentData[lbIdx];
+  if (!x) return;
+  document.getElementById('lbMark').textContent = fmtMark(x);
+  document.getElementById('lbStars').textContent = x.stars ? '★'.repeat(x.stars) : '';
+}
+
+async function mark(patch) {
+  const i = lb.classList.contains('show') ? lbIdx : gridActive;
+  const x = currentData[i];
+  if (!x) return;
+  const r = await fetch(`/api/mark/${x.character}/${x.name}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch)
+  });
+  const { entry } = await r.json();
+  Object.assign(x, { keep: false, reject: false, hq: null, note: '', regen: false, stars: 0 }, entry);
+  renderCard(i);
+  if (lb.classList.contains('show')) updateLbMark();
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+async function submitAll() {
+  // Figure out which characters have any marks. We need to ask the server
+  // per-character rather than infer from currentData (which only shows latest N).
+  const chars = [...new Set(currentData.map(x => x.character))];
+  // Also include characters mentioned in data keep/reject/hq/note fields
+  // to be safe, but currentData covers the latest window. Fine.
+  let totalKeep = 0, totalDel = 0, submittedChars = 0;
+  for (const c of chars) {
+    const r = await fetch(`/api/submit/${c}`, { method: 'POST' });
+    const { keepers, deleted } = await r.json();
+    if (keepers || deleted) {
+      totalKeep += keepers;
+      totalDel += deleted;
+      submittedChars++;
+    }
+  }
+  document.getElementById('submitStat').textContent =
+    `submitted ${submittedChars} chars · ${totalKeep} keepers · ${totalDel} rejects deleted`;
+  setTimeout(() => document.getElementById('submitStat').textContent = '', 8000);
+  toast(`submitted ${submittedChars} character(s)`);
+  load();
+}
+
+// Lightbox + scroll-zoom
+let zoom = 1, panX = 0, panY = 0, dragStart = null;
+const lb = document.getElementById('lightbox');
+const zw = document.getElementById('zoomwrap');
+const lbImg = document.getElementById('lbImg');
+const lbInfo = document.getElementById('lbInfo');
+function applyZoom() {
+  lbImg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+  zw.classList.toggle('zoomed', zoom > 1);
+}
+function resetZoom() { zoom = 1; panX = 0; panY = 0; applyZoom(); }
+function openLightbox(idx) {
+  lbIdx = idx;
+  gridActive = idx;
+  const x = currentData[idx];
+  if (!x) return;
+  // Leaving a stale bake-off mode when moving across images
+  if (bakeOn) {
+    const g = groupOf(x);
+    if (g !== bakeGroupKey) { bakeOn = false; bakeGroupKey = null; }
+  }
+  if (bakeOn && bakeGroupKey) {
+    // Keep grid visible, re-render on new active
+    document.getElementById('bakeoff').classList.add('show');
+    zw.style.display = 'none';
+    renderBakeoff();
+  } else {
+    document.getElementById('bakeoff').classList.remove('show');
+    zw.style.display = '';
+    lbImg.src = `/img/${x.character}/${x.file}`;
+    resetZoom();
+  }
+  const gs = groupSizeFor(x);
+  const groupHint = gs >= 2 ? `  ·  [B] bake-off ×${gs}` : '';
+  lbInfo.innerHTML = `<strong style="color:#4af">${x.character}</strong> · ${x.name} · ${fmtTime(x.mtime)}${groupHint}`;
+  const simKey = `${x.character}/${x.name}`;
+  const lbBtn = document.getElementById('similarBtn');
+  if (pendingSimilar.has(simKey)) {
+    lbBtn.disabled = true; lbBtn.textContent = 'queued';
+  } else {
+    lbBtn.disabled = false; lbBtn.textContent = 'make similar ×2';
+  }
+  document.getElementById('similarToast').textContent = '';
+  lb.classList.add('show');
+  updateLbMark();
+  refreshPeek();
+  closeCompare();
+  updateCmpBtn();
+}
+function closeLightbox() {
+  lb.classList.remove('show');
+  lbIdx = -1;
+  resetZoom();
+  noteOpen = false;
+  document.getElementById('noteInput').blur();
+  bakeOn = false; bakeGroupKey = null;
+  document.getElementById('bakeoff').classList.remove('show');
+  document.getElementById('peekPanel').classList.remove('show');
+  peekFullOn = false;
+  zw.style.display = '';
+  closeCompare();
+}
+
+// ---- HQ Compare slider ----
+const cmpWrap   = document.getElementById('cmpWrap');
+const cmpOrig   = document.getElementById('cmpOrig');
+const cmpHq     = document.getElementById('cmpHq');
+const cmpDiv    = document.getElementById('cmpDivider');
+const cmpBtn    = document.getElementById('cmpBtn');
+let cmpOpen     = false;
+let cmpDragging = false;
+let cmpSplit    = 50;
+// Cache: char -> [{orig, hq, num}]
+const cmpCache  = {};
+
+async function getCmpPairs(char) {
+  if (!cmpCache[char]) {
+    const r = await fetch(`/api/compare/pairs/${char}`);
+    cmpCache[char] = r.ok ? await r.json() : [];
+  }
+  return cmpCache[char];
+}
+
+function setCmpSplit(pct) {
+  cmpSplit = Math.max(0, Math.min(100, pct));
+  const p = cmpSplit.toFixed(1);
+  cmpHq.style.clipPath = `inset(0 ${(100 - cmpSplit).toFixed(1)}% 0 0)`;
+  cmpDiv.style.left = p + '%';
+}
+
+async function openCompare() {
+  if (lbIdx < 0) return;
+  const x = currentData[lbIdx];
+  const pairs = await getCmpPairs(x.character);
+  // Match by stripping leading zeros from the image number in x.name
+  const m = x.name.match(/_(\d+)_/);
+  if (!m) return;
+  const num = String(parseInt(m[1], 10));
+  const pair = pairs.find(p => p.num === num);
+  if (!pair) return;
+  cmpOrig.src = `/img/${x.character}/${pair.orig}`;
+  cmpHq.src   = `/img/${x.character}/${pair.hq}`;
+  setCmpSplit(50);
+  zw.style.display = 'none';
+  cmpWrap.classList.add('show');
+  cmpBtn.textContent = '✕ close HQ';
+  cmpOpen = true;
+}
+
+function closeCompare() {
+  if (!cmpOpen) return;
+  cmpWrap.classList.remove('show');
+  zw.style.display = '';
+  cmpBtn.textContent = '⇔ HQ';
+  cmpOpen = false;
+}
+
+cmpBtn.addEventListener('click', () => cmpOpen ? closeCompare() : openCompare());
+
+// Drag events on cmpWrap
+cmpWrap.addEventListener('mousedown',  e => { cmpDragging = true; _cmpMove(e); });
+cmpWrap.addEventListener('touchstart', e => { cmpDragging = true; _cmpMove(e); }, { passive: true });
+window.addEventListener('mousemove',  e => { if (cmpDragging) _cmpMove(e); });
+window.addEventListener('touchmove',  e => { if (cmpDragging) _cmpMove(e); }, { passive: true });
+window.addEventListener('mouseup',   () => cmpDragging = false);
+window.addEventListener('touchend',  () => cmpDragging = false);
+
+function _cmpMove(e) {
+  const rect = cmpWrap.getBoundingClientRect();
+  const cx = e.touches ? e.touches[0].clientX : e.clientX;
+  setCmpSplit(((cx - rect.left) / rect.width) * 100);
+}
+
+// Update compare button enabled state when lightbox opens
+async function updateCmpBtn() {
+  if (lbIdx < 0) { cmpBtn.disabled = true; return; }
+  const x = currentData[lbIdx];
+  const pairs = await getCmpPairs(x.character);
+  const m = x.name.match(/_(\d+)_/);
+  const num = m ? String(parseInt(m[1], 10)) : null;
+  cmpBtn.disabled = !num || !pairs.find(p => p.num === num);
+}
+
+// ---- Peek panel refresh (single view) ----
+async function refreshPeek() {
+  if (lbIdx < 0) return;
+  const x = currentData[lbIdx];
+  if (!x) return;
+  const p = await fetchPeek(x.character, x.name);
+  // Append peek one-liner to lbInfo
+  const gs = groupSizeFor(x);
+  const groupHint = gs >= 2 ? `  ·  [B] bake-off ×${gs}` : '';
+  const one = peekOneLine(p);
+  const peekLine = one ? `<br><span style="color:#8af;font-family:monospace;font-size:0.82em">${one}</span>` : '';
+  lbInfo.innerHTML = `<strong style="color:#4af">${x.character}</strong> · ${x.name} · ${fmtTime(x.mtime)}${groupHint}${peekLine}`;
+  const pp = document.getElementById('peekPanel');
+  if (peekFullOn) {
+    pp.innerHTML = peekFullHtml(p);
+    pp.classList.add('show');
+  } else {
+    pp.classList.remove('show');
+  }
+}
+
+// ---- Bake-off grid render ----
+function renderBakeoff() {
+  if (!bakeGroupKey) return;
+  const idxs = groupMembers.get(bakeGroupKey) || [];
+  if (!idxs.length) return;
+  // Derive group prefix (strip "char::")
+  const prefix = bakeGroupKey.split("::", 2)[1];
+  const box = document.getElementById('bakeoff');
+  box.innerHTML = idxs.map((dataIdx, paneIdx) => {
+    const x = currentData[dataIdx];
+    if (!x) return '';
+    const stem = stemNoCounter(x.name);
+    const variant = stem.slice(prefix.length + 1) || "(base)";
+    const badges = [];
+    if (x.keep) badges.push('<span class="b k">K</span>');
+    if (x.hq) badges.push(`<span class="b hq">${x.hq}</span>`);
+    if (x.note) badges.push('<span class="b n">N</span>');
+    const cls = (paneIdx === bakeIdx ? 'active ' : '') + (x.keep ? 'keep ' : '') + (x.reject ? 'reject ' : '');
+    return `
+      <div class="pane ${cls}" data-bi="${paneIdx}">
+        <img src="/img/${x.character}/${x.file}">
+        <div class="cap">
+          <div class="variant">${variant}${badges.length ? ' <span class="badges-inline">'+badges.join('')+'</span>' : ''}</div>
+          <div class="peek" id="latpeek-${paneIdx}">loading…</div>
+          ${x.note ? '<div>"'+x.note+'"</div>' : ''}
+        </div>
+      </div>`;
+  }).join('');
+  box.querySelectorAll('.pane').forEach(el => {
+    el.onclick = () => {
+      bakeIdx = +el.dataset.bi;
+      // Move lbIdx to the active pane so mark() targets it
+      lbIdx = idxs[bakeIdx];
+      renderBakeoff();
+      updateLbMark();
+    };
+  });
+  // Lazy fetch peeks per pane
+  idxs.forEach(async (dataIdx, paneIdx) => {
+    const x = currentData[dataIdx];
+    if (!x) return;
+    const p = await fetchPeek(x.character, x.name);
+    const el = document.getElementById(`latpeek-${paneIdx}`);
+    if (el) el.textContent = peekOneLine(p) || '(no metadata)';
+  });
+  // Sync lbIdx with current bakeIdx
+  lbIdx = idxs[bakeIdx];
+  updateLbMark();
+  // Update header hint
+  const cur = currentData[lbIdx];
+  lbInfo.innerHTML = `BAKE-OFF <strong>${prefix}</strong> (${idxs.length}) · editing ${cur?cur.name:''} · ←→ switch · B exit`;
+}
+function stepLb(d) {
+  if (lbIdx < 0) return;
+  const next = Math.max(0, Math.min(currentData.length - 1, lbIdx + d));
+  if (next !== lbIdx) openLightbox(next);
+}
+zw.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta = e.deltaY < 0 ? 1.15 : 1/1.15;
+  const newZoom = Math.max(1, Math.min(8, zoom * delta));
+  if (newZoom === zoom) return;
+  const rect = zw.getBoundingClientRect();
+  const cx = e.clientX - rect.left - rect.width / 2;
+  const cy = e.clientY - rect.top - rect.height / 2;
+  const ratio = newZoom / zoom;
+  panX = cx - (cx - panX) * ratio;
+  panY = cy - (cy - panY) * ratio;
+  zoom = newZoom;
+  if (zoom === 1) { panX = 0; panY = 0; }
+  applyZoom();
+}, { passive: false });
+zw.addEventListener('mousedown', e => {
+  if (zoom <= 1) return;
+  dragStart = { x: e.clientX - panX, y: e.clientY - panY };
+  zw.classList.add('dragging');
+  e.preventDefault();
+});
+window.addEventListener('mousemove', e => {
+  if (!dragStart) return;
+  panX = e.clientX - dragStart.x;
+  panY = e.clientY - dragStart.y;
+  applyZoom();
+});
+window.addEventListener('mouseup', () => { dragStart = null; zw.classList.remove('dragging'); });
+zw.addEventListener('dblclick', () => resetZoom());
+lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
+const noteInput = document.getElementById('noteInput');
+
+document.addEventListener('keydown', e => {
+  // Note input has focus
+  if (noteOpen) {
+    if (e.key === 'Enter') { e.preventDefault(); mark({ note: noteInput.value }); noteOpen = false; noteInput.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); noteOpen = false; noteInput.blur(); }
+    return;
+  }
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  const lbOpen = lb.classList.contains('show');
+  const i = lbOpen ? lbIdx : gridActive;
+  const cur = currentData[i];
+  const k = e.key.toLowerCase();
+
+  // Marking shortcuts (work in both grid view and lightbox)
+  if (k === 'z') { e.preventDefault(); mark({ keep: !cur?.keep, reject: false }); return; }
+  if (k === 'x') { e.preventDefault(); mark({ reject: !cur?.reject, keep: false }); return; }
+  if (k === 'r') { e.preventDefault(); mark({ regen: !cur?.regen }); return; }
+  if (k === '1' || k === '2' || k === '3') {
+    e.preventDefault();
+    const t = HQ_MAP[k];
+    mark({ hq: cur?.hq === t ? null : t });
+    return;
+  }
+  if (e.key === ' ') { e.preventDefault(); mark({ stars: ((cur?.stars || 0) + 1) % 4 }); return; }
+  if (k === 's') { e.preventDefault(); makeSimilar(); return; }
+  if (k === 'p') { e.preventDefault(); redoPag(); return; }
+  if (k === 'u') { e.preventDefault(); if (cur) uploadToCivitai(cur); return; }
+  if (k === 'c') {
+    e.preventDefault();
+    if (!lbOpen) openLightbox(gridActive);
+    noteOpen = true;
+    noteInput.value = currentData[lbIdx]?.note || '';
+    noteInput.focus();
+    noteInput.select();
+    return;
+  }
+  if (k === 'b') {
+    e.preventDefault();
+    if (!cur) return;
+    const g = groupOf(cur);
+    if (!g) { toast('no group for this image'); return; }
+    if (!lbOpen) openLightbox(i);
+    if (bakeOn && bakeGroupKey === g) {
+      // exit bake-off, return to single view
+      bakeOn = false; bakeGroupKey = null;
+      document.getElementById('bakeoff').classList.remove('show');
+      zw.style.display = '';
+      openLightbox(lbIdx);
+    } else {
+      bakeOn = true;
+      bakeGroupKey = g;
+      const idxs = groupMembers.get(g) || [];
+      const pos = idxs.indexOf(lbIdx);
+      bakeIdx = pos >= 0 ? pos : 0;
+      document.getElementById('bakeoff').classList.add('show');
+      zw.style.display = 'none';
+      renderBakeoff();
+    }
+    return;
+  }
+  if (k === 'i') {
+    e.preventDefault();
+    if (!lbOpen) openLightbox(i);
+    peekFullOn = !peekFullOn;
+    refreshPeek();
+    return;
+  }
+  if (k === 'h') {
+    e.preventDefault();
+    if (!lbOpen) openLightbox(i);
+    cmpOpen ? closeCompare() : openCompare();
+    return;
+  }
+
+  // Navigation
+  if (lbOpen) {
+    if (e.key === 'Escape') closeLightbox();
+    else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (bakeOn && bakeGroupKey) {
+        const idxs = groupMembers.get(bakeGroupKey) || [];
+        if (idxs.length) { bakeIdx = (bakeIdx + 1) % idxs.length; lbIdx = idxs[bakeIdx]; renderBakeoff(); updateLbMark(); }
+      } else stepLb(1);
+    }
+    else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (bakeOn && bakeGroupKey) {
+        const idxs = groupMembers.get(bakeGroupKey) || [];
+        if (idxs.length) { bakeIdx = (bakeIdx - 1 + idxs.length) % idxs.length; lbIdx = idxs[bakeIdx]; renderBakeoff(); updateLbMark(); }
+      } else stepLb(-1);
+    }
+    return;
+  }
+  if (e.key === 'ArrowRight') { e.preventDefault(); setGridActive(gridActive + 1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); setGridActive(gridActive - 1); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); setGridActive(gridActive + gridCols()); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); setGridActive(gridActive - gridCols()); }
+  else if (e.key === 'Enter') { e.preventDefault(); openLightbox(gridActive); }
+});
+
+async function queueHq(character, name, btnEl) {
+  if (btnEl) { btnEl.textContent = "▲HQ…"; btnEl.classList.add("queued"); btnEl.disabled = true; }
+  try {
+    const r = await fetch(`/api/queue_hq/${character}/${name}`, { method: "POST" });
+    const data = await r.json();
+    if (data.ok) { if (btnEl) btnEl.textContent = "queued ✓"; toast(`▲HQ queued for ${name}`); }
+    else { if (btnEl) { btnEl.textContent = "▲HQ"; btnEl.classList.remove("queued"); btnEl.disabled = false; } toast(data.error || "HQ failed"); }
+  } catch(err) {
+    if (btnEl) { btnEl.textContent = "▲HQ"; btnEl.classList.remove("queued"); btnEl.disabled = false; }
+    toast("error: " + err.message);
+  }
+}
+
+async function queueSimilarByName(character, name, btnEl, count = 2) {
+  const simKey = `${character}/${name}`;
+  if (pendingSimilar.has(simKey)) return;
+  pendingSimilar.add(simKey);
+  if (btnEl) { btnEl.textContent = 'queued'; btnEl.classList.add('queued'); }
+  const lbBtn = document.getElementById('similarBtn');
+  const lbItem = lbIdx >= 0 ? currentData[lbIdx] : null;
+  if (lbItem && lbItem.character === character && lbItem.name === name) {
+    lbBtn.disabled = true; lbBtn.textContent = 'queued';
+  }
+  try {
+    const r = await fetch(`/api/make_similar/${character}/${name}?count=${count}`, { method: 'POST' });
+    const data = await r.json();
+    if (data.ok) {
+      toast(`queued ${data.count} similar for ${name}`);
+    } else {
+      pendingSimilar.delete(simKey);
+      if (btnEl) { btnEl.textContent = 'similar'; btnEl.classList.remove('queued'); }
+      toast(data.error || 'failed');
+    }
+  } catch(e) {
+    pendingSimilar.delete(simKey);
+    if (btnEl) { btnEl.textContent = 'similar'; btnEl.classList.remove('queued'); }
+    toast('error: ' + e.message);
+  }
+}
+function makeSimilar() {
+  const i = lb.classList.contains('show') ? lbIdx : gridActive;
+  const x = currentData[i];
+  if (!x) return;
+  const cardBtn = grid.querySelector(`.similar-card-btn[data-char="${x.character}"][data-name="${x.name}"]`);
+  queueSimilarByName(x.character, x.name, cardBtn);
+}
+document.getElementById('similarBtn').addEventListener('click', () => makeSimilar());
+
+document.getElementById('submitBtn').addEventListener('click', submitAll);
+
+limitSel.addEventListener('change', load);
+charFilter.addEventListener('change', load);
+document.getElementById('refreshBtn').addEventListener('click', load);
+
+async function uploadToCivitai(x) {
+  toast(`↑ Uploading ${x.name} to CivitAI…`);
+  try {
+    const resp = await fetch(`/api/civitai_upload/${x.character}/${x.name}`, {method: 'POST'});
+    const data = await resp.json();
+    if (data.ok) {
+      x.civitai = true;
+      updateLbMark();
+      toast(`✓ Uploaded to CivitAI${data.url ? ' → ' + data.url : ''}`);
+    } else {
+      toast(`✗ CivitAI error: ${data.error || data.status || 'unknown'}`);
+    }
+  } catch(e) {
+    toast(`✗ Upload failed: ${e.message}`);
+  }
+}
+
+let pagPending = false;
+async function redoPag() {
+  const i = lb.classList.contains('show') ? lbIdx : gridActive;
+  const x = currentData[i];
+  if (!x) return;
+  if (pagPending) return;
+  const btn = document.getElementById('pagBtn');
+  pagPending = true;
+  btn.disabled = true; btn.textContent = 'queuing…';
+  try {
+    const r = await fetch(`/api/redo_pag/${x.character}/${x.name}`, {method: 'POST'});
+    const data = await r.json();
+    if (data.ok) {
+      btn.textContent = 'queued!';
+      document.getElementById('similarToast').textContent = `PAG queued (seed …${String(data.seed).slice(-6)})`;
+      setTimeout(() => { document.getElementById('similarToast').textContent = ''; }, 5000);
+    } else {
+      btn.textContent = data.error || 'error';
+      pagPending = false;
+      setTimeout(() => { btn.disabled = false; btn.textContent = 'PAG redo'; pagPending = false; }, 3000);
+      return;
+    }
+  } catch(e) {
+    btn.textContent = 'error';
+    pagPending = false;
+  }
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'PAG redo'; pagPending = false; }, 8000);
+}
+
+let _lastQueueTotal = -1;
+async function pollQueue() {
+  try {
+    const r = await fetch('/api/comfy_queue');
+    const d = await r.json();
+    const el = document.getElementById('comfyQ');
+    if (d.offline) { el.textContent = 'ComfyUI offline'; el.style.color = '#c44'; }
+    else if (d.total === 0) { el.textContent = 'queue empty'; el.style.color = '#4c4'; }
+    else { el.textContent = `rendering ${d.running} + ${d.pending} queued`; el.style.color = '#fc4'; }
+    // Auto-reload grid when queue drains (new images landed)
+    if (_lastQueueTotal > 0 && d.total === 0) load();
+    _lastQueueTotal = d.total;
+  } catch(e) {}
+}
+
+// ---- ComfyUI live preview + progress (server-side proxy poll) ----
+let _lastPreviewB64 = null, _hideTimer = null, _isShowing = false;
+function _nrEl(id) { return document.getElementById(id); }
+function _showNR() {
+  if (_hideTimer) { clearTimeout(_hideTimer); _hideTimer = null; }
+  _nrEl('nowRendering').style.display = 'block';
+  _isShowing = true;
+}
+function _scheduleHideNR() {
+  if (!_isShowing || _hideTimer) return;
+  _nrEl('progressFill').style.width = '100%';
+  _nrEl('progressText').textContent = 'done';
+  _hideTimer = setTimeout(() => {
+    _nrEl('nowRendering').style.display = 'none';
+    _nrEl('previewImg').style.display = 'none';
+    _lastPreviewB64 = null; _hideTimer = null; _isShowing = false;
+  }, 2500);
+}
+async function pollComfyPreview() {
+  try {
+    const r = await fetch('/api/comfy_preview');
+    const d = await r.json();
+    const dot = document.getElementById('renderingDot');
+    const stepSpan = document.getElementById('renderStep');
+    if (d.rendering) {
+      if (dot) dot.style.display = 'inline';
+      if (d.img && d.img !== _lastPreviewB64) {
+        _lastPreviewB64 = d.img;
+        const img = _nrEl('previewImg');
+        img.src = 'data:image/jpeg;base64,' + d.img;
+        img.style.display = 'block';
+        _showNR();
+      }
+      if (d.step != null && d.max != null) {
+        const pct = d.max > 0 ? Math.round(d.step / d.max * 100) : 0;
+        if (stepSpan) stepSpan.textContent = `${d.step}/${d.max}`;
+        _nrEl('progressFill').style.width = pct + '%';
+        _nrEl('progressText').textContent = `step ${d.step} / ${d.max}`;
+        _showNR();
+      }
+    } else {
+      if (dot) dot.style.display = 'none';
+      _scheduleHideNR();
+    }
+  } catch(e) {}
+}
+setInterval(pollComfyPreview, 300);
+
+load();
+pollQueue();
+setInterval(load, 30000);
+setInterval(pollQueue, 5000);
+
+// ── Animate ──────────────────────────────────────────────────────────────────
+let animatePollTimer = null;
+
+function snap16(n) { return Math.max(16, Math.round(n / 16) * 16); }
+
+function buildResOptions(srcW, srcH, selEl) {
+  selEl.innerHTML = "";
+  const maxDim = 960;
+  const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+  const bases = [1, 0.5, 0.25].map(f => ({
+    w: snap16(srcW * scale * f),
+    h: snap16(srcH * scale * f),
+    label: f === 1 ? "Full" : f === 0.5 ? "Half" : "Quarter",
+  })).filter(o => o.w >= 256 && o.h >= 256);
+  for (const o of bases) {
+    const opt = document.createElement("option");
+    opt.value = `${o.w}x${o.h}`;
+    opt.textContent = `${o.label}  ${o.w}×${o.h}`;
+    if (o.label === "Full") opt.selected = true;
+    selEl.appendChild(opt);
+  }
+}
+
+async function openAnimate() {
+  const it = items[active]; if (!it) return;
+  document.getElementById("animateImgName").textContent = `${it.character} / ${it.name}`;
+  document.getElementById("animatePrompt").value = "";
+  document.getElementById("animateStatus").textContent = "";
+  document.getElementById("animateGoBtn").disabled = false;
+  document.getElementById("animateGoBtn").textContent = "🎬 Generate";
+  try {
+    const r = await fetch(`/api/imgsize/${it.character}/${it.name}`);
+    const d = await r.json();
+    if (d.width) buildResOptions(d.width, d.height, document.getElementById("animateRes"));
+    // auto-fill from the embedded animation note (factory/anim-base pics carry one)
+    if (d.animation_note && d.animation_note.i2v_prompt) {
+      const n = d.animation_note;
+      document.getElementById("animatePrompt").value = n.i2v_prompt;
+      document.getElementById("animateStatus").textContent =
+        `↳ embedded motion [${n.verb}${n.tier ? " · tier " + n.tier : ""}]: ${n.motion || ""}`;
+    }
+  } catch(e) {}
+  document.getElementById("animateOverlay").classList.add("show");
+  document.getElementById("animatePrompt").focus();
+}
+
+function closeAnimate() {
+  document.getElementById("animateOverlay").classList.remove("show");
+  clearInterval(animatePollTimer);
+}
+
+function animateToast(html, sticky = false) {
+  const t = document.getElementById("similarToast");
+  t.innerHTML = html;
+  if (!sticky) setTimeout(() => { t.innerHTML = ""; }, 8000);
+}
+
+async function submitAnimate() {
+  const it = items[active]; if (!it) return;
+  const prompt = document.getElementById("animatePrompt").value.trim();
+  if (!prompt) { document.getElementById("animateStatus").textContent = "Enter a prompt first."; return; }
+  const [w, h] = document.getElementById("animateRes").value.split("x").map(Number);
+  const length = parseInt(document.getElementById("animateLen").value);
+  const fast_mode = document.getElementById("animateMode").value === "fast";
+  const statusEl = document.getElementById("animateStatus");
+  const goBtn = document.getElementById("animateGoBtn");
+  goBtn.disabled = true; goBtn.textContent = "Uploading…";
+  statusEl.textContent = "Uploading…";
+  let data;
+  try {
+    const r = await fetch("/api/animate", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({character: it.character, name: it.name, prompt, width: w, height: h, length, fast_mode}),
+    });
+    data = await r.json();
+  } catch(e) {
+    statusEl.textContent = "Error: " + e.message;
+    goBtn.disabled = false; goBtn.textContent = "🎬 Generate";
+    return;
+  }
+  if (data.error) {
+    statusEl.textContent = "Error: " + data.error;
+    goBtn.disabled = false; goBtn.textContent = "🎬 Generate";
+    return;
+  }
+  closeAnimate();
+  const pid = data.prompt_id;
+  animateToast(`▶ animating… (${pid.slice(0,8)})`, true);
+  clearInterval(animatePollTimer);
+  animatePollTimer = setInterval(async () => {
+    try {
+      const sr = await fetch(`/api/animate/status/${pid}`);
+      const sd = await sr.json();
+      if (sd.status === "done") {
+        clearInterval(animatePollTimer);
+        const links = (sd.videos || []).map(v =>
+          `<a href="${v.url}" target="_blank" style="color:#4c4">▶ ${v.rel.split("/").pop()}</a>`
+        ).join("  ");
+        animateToast(`✓ video ready  ${links || "(RunPod keeperweb)"}`, true);
+      } else if (sd.status === "error") {
+        clearInterval(animatePollTimer);
+        animateToast(`✗ animate failed`);
+      }
+    } catch(e) {}
+  }, 5000);
+}
+</script>
+
+<div class="animate-overlay" id="animateOverlay">
+  <div class="animate-box">
+    <h3>▶ Animate with WAN I2V</h3>
+    <div id="animateImgName" style="font-size:0.8em;color:#888;"></div>
+    <textarea id="animatePrompt" placeholder="Describe the motion: camera push-in, she turns slowly, hair blows in wind…"></textarea>
+    <div class="arow">
+      <select id="animateRes"></select>
+      <select id="animateLen">
+        <option value="49">~2s (49fr)</option>
+        <option value="81" selected>~3.4s (81fr)</option>
+        <option value="121">~5s (121fr)</option>
+      </select>
+      <select id="animateMode">
+        <option value="fast" selected>Fast 4-step</option>
+        <option value="quality">Quality 20-step</option>
+      </select>
+    </div>
+    <div class="animate-status" id="animateStatus"></div>
+    <div class="arow">
+      <button class="go-btn" id="animateGoBtn" onclick="submitAnimate()">🎬 Generate</button>
+      <button class="cancel-btn" onclick="closeAnimate()">Cancel</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Videos</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #111; color: #eee; font-family: -apple-system, system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+header { flex-shrink: 0; position: sticky; top: 0; background: #1a1a1a; border-bottom: 1px solid #333; padding: 8px 12px; display: flex; gap: 10px; align-items: center; z-index: 10; }
+header a { color: #7af; text-decoration: none; font-size: 12px; }
+h1 { font-size: 15px; color: #aaa; }
+
+/* Split layout */
+#main { display: flex; flex: 1; overflow: hidden; }
+#gridCol { flex: 1; overflow-y: auto; min-width: 0; }
+#detail { width: 380px; min-width: 260px; background: #161616; border-left: 1px solid #2a2a2a; display: flex; flex-direction: column; overflow: hidden; transition: width 0.2s; }
+#detail.wide { width: 55vw; }
+#detail.hidden { width: 0; min-width: 0; border: none; overflow: hidden; }
+
+/* Grid */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 2px; padding: 8px; }
+.card { position: relative; background: #1a1a1a; border: 2px solid transparent; border-radius: 4px; overflow: hidden; cursor: pointer; }
+.card.active { border-color: #4af; }
+.card.keep { border-color: #4c4; }
+.card.reject { border-color: #c44; opacity: 0.45; }
+.card:hover .play-icon { opacity: 1; }
+.badge-k { position: absolute; top: 4px; right: 4px; background: #4c4; color: #111; font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; pointer-events: none; }
+.badge-r { position: absolute; top: 4px; right: 4px; background: #c44; color: #fff; font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; pointer-events: none; }
+.badge-new { position: absolute; top: 4px; left: 4px; background: #48f; color: #fff; font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; pointer-events: none; letter-spacing: 0.5px; }
+.badge-n { position: absolute; bottom: 28px; left: 4px; background: #fa0; color: #111; font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; pointer-events: none; }
+
+.thumb-wrap { position: relative; width: 100%; padding-bottom: 75%; background: #222; }
+.thumb-wrap img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.thumb-wrap .no-thumb { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #444; font-size: 28px; }
+.play-icon { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 24px; opacity: 0; transition: opacity 0.15s; background: rgba(0,0,0,0.4); pointer-events: none; }
+
+.card-info { padding: 4px 6px 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-info .cname { color: #bbb; font-weight: 600; }
+
+/* Detail panel */
+#detailHeader { display: flex; align-items: center; padding: 5px 10px; border-bottom: 1px solid #222; gap: 6px; flex-shrink: 0; }
+#detailHeader .dtitle { font-size: 11px; color: #555; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#detailHeader button { background: none; border: 1px solid #2a2a2a; border-radius: 3px; color: #555; font-size: 11px; padding: 1px 6px; cursor: pointer; line-height: 1.4; }
+#detailHeader button:hover { color: #aaa; border-color: #444; }
+#detailVideoWrap { position: relative; background: #000; flex-shrink: 0; }
+#detail video { width: 100%; display: block; max-height: 55vh; object-fit: contain; background: #000; }
+#detail .no-video { width: 100%; height: 220px; background: #0d0d0d; display: flex; align-items: center; justify-content: center; color: #2a2a2a; font-size: 48px; }
+#detail.wide video { max-height: 65vh; }
+#detail .dinfo { padding: 10px 12px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+#detail .dname { font-size: 13px; color: #ddd; font-weight: 600; }
+#detail .dsub { font-size: 11px; color: #555; }
+#detail .dprompt { font-size: 11px; color: #777; line-height: 1.5; overflow-y: auto; min-height: 40px; max-height: 120px; }
+#noteWrap { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
+#noteLabel { font-size: 10px; color: #444; }
+#noteLabel.has-note { color: #fa0; }
+#noteInput { background: #1a1a1a; border: 1px solid #333; border-radius: 3px; color: #ddd; font-size: 11px; font-family: inherit; padding: 5px 7px; resize: none; width: 100%; min-height: 48px; }
+#noteInput:focus { outline: none; border-color: #fa0; }
+#detail .dbtns { display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+#detail .dbtns button { flex: 1; min-width: 60px; padding: 6px 8px; border-radius: 4px; border: 1px solid #333; background: #222; color: #aaa; font-size: 12px; cursor: pointer; }
+#detail .dbtns button:hover { background: #2a2a2a; color: #fff; }
+#detail .dbtns .btn-keep { border-color: #3a6a3a; color: #6d6; }
+#detail .dbtns .btn-keep.on { background: #1a3a1a; color: #4c4; border-color: #4c4; }
+#detail .dbtns .btn-reject { border-color: #6a3a3a; color: #d66; }
+#detail .dbtns .btn-reject.on { background: #3a1a1a; color: #c44; border-color: #c44; }
+#detail .dbtns .btn-rerun { border-color: #5a5a2a; color: #ca4; background: #2a2a1a; }
+#detail .dbtns .btn-rerun:hover { background: #3a3a2a; }
+#detail .dbtns .btn-full { border-color: #3a4a5a; color: #79c; }
+#detail .keys { padding: 6px 12px 8px; border-top: 1px solid #1e1e1e; display: flex; flex-wrap: wrap; gap: 3px 10px; flex-shrink: 0; }
+#detail .keys .key { font-size: 10px; color: #3a3a3a; display: flex; gap: 4px; align-items: center; }
+kbd { background: #222; border: 1px solid #383838; border-radius: 3px; padding: 0 4px; font-size: 10px; color: #666; font-family: inherit; }
+
+/* Pending bar */
+.pending-card { background: #1a1a2a; border: 1px solid #334; border-radius: 6px; margin: 4px 8px; padding: 8px 12px; display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; white-space: nowrap; }
+.badge-pending { background:#332; color:#fa0; }
+.badge-queued  { background:#223; color:#88c; }
+.badge-running { background:#332; color:#ca4; }
+.badge-error   { background:#311; color:#c44; }
+.spinner { display: inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Fullscreen modal */
+#modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; align-items: center; justify-content: center; flex-direction: column; }
+#modal.show { display: flex; }
+#modal video { max-width: 90vw; max-height: 86vh; border-radius: 6px; }
+#modal .close-btn { position: fixed; top: 14px; right: 18px; font-size: 22px; color: #888; cursor: pointer; background: none; border: none; line-height: 1; }
+#modal .close-btn:hover { color: #fff; }
+#modal .modal-meta { color: #555; font-size: 11px; margin-top: 8px; text-align: center; max-width: 600px; }
+
+/* Rerun dialog */
+#rerunDlg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; align-items: center; justify-content: center; }
+#rerunDlg.show { display: flex; }
+.rerun-box { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 18px; width: 540px; max-width: 95vw; display: flex; flex-direction: column; gap: 10px; }
+.rerun-box h3 { font-size: 14px; color: #ca4; margin-bottom: 2px; }
+.rerun-box label { font-size: 11px; color: #666; margin-bottom: 2px; display: block; }
+.rerun-box .orig-prompt { background: #111; border: 1px solid #2a2a2a; border-radius: 4px; padding: 8px; font-size: 11px; color: #777; font-family: monospace; max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+.rerun-box textarea { background: #111; border: 1px solid #444; border-radius: 4px; padding: 8px; color: #ddd; font-size: 12px; font-family: inherit; resize: vertical; min-height: 70px; width: 100%; }
+.rerun-box textarea:focus { outline: none; border-color: #ca4; }
+.rerun-box .arow { display: flex; gap: 8px; align-items: center; }
+.rerun-box .go-btn { background: #3a3a1a; color: #ca4; border: 1px solid #5a5a2a; border-radius: 4px; padding: 6px 16px; cursor: pointer; font-size: 13px; }
+.rerun-box .go-btn:hover { background: #4a4a2a; }
+.rerun-box .cancel-btn { background: #222; color: #888; border: 1px solid #333; border-radius: 4px; padding: 6px 12px; cursor: pointer; }
+.rerun-box select { background: #222; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 4px 8px; font-size: 12px; }
+.rerun-status { font-size: 11px; color: #888; }
+
+#empty { color: #444; padding: 64px; text-align: center; font-size: 14px; }
+
+/* Upload dialog */
+#uploadDlg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; align-items: center; justify-content: center; }
+#uploadDlg.show { display: flex; }
+.upload-box { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 20px; width: 560px; max-width: 95vw; display: flex; flex-direction: column; gap: 12px; }
+.upload-box h3 { font-size: 14px; color: #ca4; }
+.upload-box label { font-size: 11px; color: #666; display: block; margin-bottom: 3px; }
+.upload-box textarea { background: #111; border: 1px solid #444; border-radius: 4px; padding: 8px; color: #ddd; font-size: 12px; font-family: inherit; resize: vertical; min-height: 80px; width: 100%; }
+.upload-box textarea:focus { outline: none; border-color: #ca4; }
+.upload-box select { background: #222; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 4px 8px; font-size: 12px; }
+.upload-box .arow { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.upload-drop { border: 2px dashed #333; border-radius: 6px; padding: 24px; text-align: center; cursor: pointer; color: #555; font-size: 13px; transition: border-color 0.15s, color 0.15s; position: relative; }
+.upload-drop:hover, .upload-drop.over { border-color: #ca4; color: #ca4; }
+.upload-drop input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.upload-preview { max-height: 160px; max-width: 100%; border-radius: 4px; display: block; margin: 0 auto; }
+.upload-box .go-btn { background: #3a3a1a; color: #ca4; border: 1px solid #5a5a2a; border-radius: 4px; padding: 6px 18px; cursor: pointer; font-size: 13px; }
+.upload-box .go-btn:hover { background: #4a4a2a; }
+.upload-box .go-btn:disabled { opacity: 0.5; cursor: default; }
+.upload-box .cancel-btn { background: #222; color: #888; border: 1px solid #333; border-radius: 4px; padding: 6px 12px; cursor: pointer; }
+.upload-status { font-size: 11px; color: #888; }
+.lora-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.lora-chip { display: flex; align-items: center; gap: 4px; background: #222; border: 1px solid #383838; border-radius: 4px; padding: 3px 8px; font-size: 11px; }
+.lora-chip input[type=checkbox] { cursor: pointer; }
+.lora-chip label { color: #aaa; cursor: pointer; }
+.lora-strength { width: 40px; background: #1a1a1a; border: 1px solid #383838; border-radius: 3px; color: #ddd; font-size: 11px; padding: 1px 4px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 Videos</h1>
+  <a href="/">← images</a>
+  <a href="/queue">queue</a>
+  <button onclick="openUpload()" style="margin-left:auto;background:#2a2a1a;color:#ca4;border:1px solid #5a5a2a;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer">+ Animate from image</button>
+  <button id="btnPurge" onclick="purgeRejected()" style="background:#2a1a1a;color:#c44;border:1px solid #5a2a2a;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer">🗑 Delete Rejected</button>
+  <span id="vidCount" style="color:#555;font-size:11px"></span>
+</header>
+
+<div id="main">
+  <!-- Grid column -->
+  <div id="gridCol">
+    <div id="pendingList"></div>
+    <div class="grid" id="grid"></div>
+    <div id="empty" style="display:none">No local videos yet.</div>
+  </div>
+
+  <!-- Detail panel -->
+  <div id="detail">
+    <div id="detailHeader">
+      <span class="dtitle" id="dHeaderTitle">No selection</span>
+      <button onclick="toggleDetailWide()" id="btnWide" title="Expand panel">⇔</button>
+      <button onclick="toggleDetail()" id="btnHide" title="Hide panel">✕</button>
+    </div>
+    <div id="detailVideoWrap">
+      <div class="no-video" id="detailNoVideo">▶</div>
+      <video id="detailVideo" autoplay muted loop playsinline style="display:none"></video>
+    </div>
+    <div class="dinfo" id="dinfo">
+      <div class="dname" id="dName">—</div>
+      <div class="dsub" id="dSub"></div>
+      <div class="dprompt" id="dPrompt"></div>
+      <div id="noteWrap">
+        <div id="noteLabel">C — add note</div>
+        <textarea id="noteInput" placeholder="Your comment on this video…" rows="2"></textarea>
+      </div>
+      <div class="dbtns">
+        <button class="btn-keep" id="btnKeep" onclick="toggleMark('keep')">Z Keep</button>
+        <button class="btn-reject" id="btnReject" onclick="toggleMark('reject')">X Reject</button>
+        <button class="btn-rerun" onclick="openRerunActive()">R Rerun</button>
+        <button class="btn-full" onclick="openModalActive()">⛶ Full</button>
+      </div>
+    </div>
+    <div class="keys">
+      <div class="key"><kbd>←→</kbd> nav</div>
+      <div class="key"><kbd>Z</kbd> keep</div>
+      <div class="key"><kbd>X</kbd> reject</div>
+      <div class="key"><kbd>R</kbd> rerun</div>
+      <div class="key"><kbd>Enter</kbd> fullscreen</div>
+      <div class="key"><kbd>W</kbd> wide</div>
+      <div class="key"><kbd>D</kbd> hide panel</div>
+      <div class="key"><kbd>C</kbd> comment</div>
+    </div>
+  </div>
+</div>
+
+<!-- Fullscreen modal -->
+<div id="modal">
+  <button class="close-btn" onclick="closeModal()">✕</button>
+  <video id="modalVideo" controls loop autoplay muted playsinline></video>
+  <div class="modal-meta" id="modalMeta"></div>
+</div>
+
+<!-- Upload & Animate dialog -->
+<div id="uploadDlg">
+  <div class="upload-box">
+    <h3>🎬 Animate from image</h3>
+    <div>
+      <label>Image (drag & drop or click)</label>
+      <div class="upload-drop" id="uploadDrop">
+        <input type="file" id="uploadFile" accept="image/*" onchange="onFileChosen(this.files[0])">
+        <span id="uploadDropLabel">Paste (Ctrl+V), drop, or click to browse</span>
+        <img id="uploadPreview" class="upload-preview" style="display:none;margin-top:8px">
+      </div>
+    </div>
+    <div>
+      <label>Animation prompt</label>
+      <textarea id="uploadPrompt" placeholder="Describe the motion: subtle breathing, hair swaying, eyes blinking, breasts bouncing…"></textarea>
+    </div>
+    <div class="arow">
+      <div>
+        <label>Resolution</label>
+        <select id="uploadRes">
+          <option value="640x640">640×640</option>
+        </select>
+      </div>
+      <div>
+        <label>Length</label>
+        <select id="uploadLen">
+          <option value="49">~2s (49fr)</option>
+          <option value="81" selected>~3.4s (81fr)</option>
+          <option value="121">~5s (121fr)</option>
+          <option value="161">~6.7s (161fr)</option>
+          <option value="201">~8.4s (201fr)</option>
+          <option value="241">~10s (241fr)</option>
+        </select>
+      </div>
+      <div>
+        <label>Mode</label>
+        <select id="uploadMode">
+          <option value="fast" selected>Fast (LightX2V 4-step) ★ recommended</option>
+          <option value="q20">Quality 20-step ⚠ jitter</option>
+          <option value="q30">Quality 30-step ⚠ jitter</option>
+        </select>
+      </div>
+    </div>
+    <div>
+      <label>LoRAs</label>
+      <div class="lora-grid" id="uploadLoraGrid"></div>
+    </div>
+    <div class="arow">
+      <button class="go-btn" id="uploadGoBtn" onclick="submitUpload()">🎬 Submit</button>
+      <button class="cancel-btn" onclick="closeUpload()">Cancel</button>
+      <span class="upload-status" id="uploadStatus"></span>
+    </div>
+  </div>
+</div>
+
+<!-- Rerun dialog -->
+<div id="rerunDlg">
+  <div class="rerun-box">
+    <h3>🔁 Rerun with feedback</h3>
+    <div>
+      <label>Original prompt</label>
+      <div class="orig-prompt" id="rerunOrigPrompt"></div>
+    </div>
+    <div>
+      <label>What was wrong / what to change</label>
+      <textarea id="rerunFeedback" placeholder="e.g. face drifted too much, more breathing movement, static shot please…"></textarea>
+    </div>
+    <div class="arow">
+      <select id="rerunLen">
+        <option value="49">~2s (49fr)</option>
+        <option value="81" selected>~3.4s (81fr)</option>
+        <option value="121">~5s (121fr)</option>
+        <option value="161">~6.7s (161fr)</option>
+        <option value="201">~8.4s (201fr)</option>
+        <option value="241">~10s (241fr)</option>
+      </select>
+      <select id="rerunMode">
+        <option value="fast" selected>Fast (LightX2V 4-step) ★ recommended</option>
+        <option value="q20">Quality 20-step ⚠ jitter</option>
+        <option value="q30">Quality 30-step ⚠ jitter</option>
+      </select>
+    </div>
+    <div class="arow">
+      <button class="go-btn" id="rerunGoBtn" onclick="submitRerun()">🔁 Submit</button>
+      <button class="cancel-btn" onclick="closeRerun()">Cancel</button>
+      <span class="rerun-status" id="rerunStatus"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentVideos = [];
+let rerunTarget = null;
+let activeVid = 0;
+
+// "New" video tracking: anything with mtime > lastSeen is NEW
+const LS_KEY = "vids_lastSeen";
+let lastSeen = parseFloat(localStorage.getItem(LS_KEY) || "0");
+// On first visit (no saved value) treat everything as seen so we don't badge everything
+if (!lastSeen) lastSeen = Date.now() / 1000;
+// Save lastSeen = now whenever user leaves the page
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") localStorage.setItem(LS_KEY, Date.now() / 1000);
+});
+
+function ago(ts) {
+  const s = Math.round(Date.now()/1000 - ts);
+  if (s < 60) return s+"s ago";
+  if (s < 3600) return Math.floor(s/60)+"m ago";
+  return Math.floor(s/3600)+"h ago";
+}
+
+function badgeHtml(s) {
+  const sp = `<span class="spinner">⟳</span> `;
+  if (s==="pending")  return `<span class="badge badge-pending">⏳ pending</span>`;
+  if (s==="queued")   return `<span class="badge badge-queued">${sp}queued</span>`;
+  if (s==="running")  return `<span class="badge badge-running">${sp}running</span>`;
+  if (s==="error")    return `<span class="badge badge-error">✗ error</span>`;
+  return "";
+}
+
+function renderGrid(videos) {
+  currentVideos = videos;
+  const grid = document.getElementById("grid");
+  const empty = document.getElementById("empty");
+  const newCount = videos.filter(v => v.mtime > lastSeen).length;
+  const countLabel = videos.length + " video" + (videos.length!==1?"s":"") + (newCount ? `  ·  ${newCount} NEW` : "");
+  document.getElementById("vidCount").textContent = countLabel;
+  document.title = newCount ? `(${newCount} new) Videos` : "Videos";
+  if (!videos.length) { grid.innerHTML=""; empty.style.display="block"; return; }
+  empty.style.display="none";
+  if (activeVid >= videos.length) activeVid = Math.max(0, videos.length - 1);
+  grid.innerHTML = videos.map((v, i) => {
+    const thumb = v.has_thumb ? `/video_thumb/${v.rel}` : null;
+    const isNew = v.mtime > lastSeen;
+    const cls = [i === activeVid ? "active" : "", v.keep ? "keep" : "", v.reject ? "reject" : ""].filter(Boolean).join(" ");
+    return `<div class="card ${cls}" data-idx="${i}" onclick="setActive(${i})">
+      <div class="thumb-wrap">
+        ${thumb ? `<img src="${thumb}" loading="lazy">` : `<div class="no-thumb">▶</div>`}
+        <div class="play-icon">▶</div>
+      </div>
+      ${v.keep ? '<span class="badge-k">K</span>' : v.reject ? '<span class="badge-r">✗</span>' : ''}
+      ${isNew ? '<span class="badge-new">NEW</span>' : ''}
+      ${v.note ? '<span class="badge-n">N</span>' : ''}
+      <div class="card-info">
+        <span class="cname">${v.character}</span> <span style="color:#666">${v.src_name.replace(/_+$/,"")}</span>
+      </div>
+    </div>`;
+  }).join("");
+  updateDetail();
+}
+
+function updateDetail(doPlay = false) {
+  const v = currentVideos[activeVid];
+  const vid = document.getElementById("detailVideo");
+  const noVid = document.getElementById("detailNoVideo");
+  // Restore panel if hidden
+  document.getElementById("detail").classList.remove("hidden");
+  if (!v) {
+    vid.style.display = "none"; noVid.style.display = "flex";
+    document.getElementById("dHeaderTitle").textContent = "No selection";
+    document.getElementById("dName").textContent = "—";
+    document.getElementById("dSub").textContent = "";
+    document.getElementById("dPrompt").textContent = "";
+    return;
+  }
+  const src = `/local_video/${v.rel}`;
+  vid.style.display = "block";
+  noVid.style.display = "none";
+  if (vid.dataset.src !== src) {
+    vid.dataset.src = src;
+    vid.src = src;
+    vid.load();
+    if (doPlay) {
+      vid.addEventListener('canplay', function h() { vid.removeEventListener('canplay', h); vid.play().catch(()=>{}); }, {once:true});
+    }
+  } else if (doPlay) {
+    vid.play().catch(() => {});
+  }
+  const label = `${v.character} · ${v.src_name.replace(/_+$/,"")}`;
+  document.getElementById("dHeaderTitle").textContent = label;
+  document.getElementById("dName").textContent = label;
+  document.getElementById("dSub").textContent = [v.width ? `${v.width}×${v.height}` : "", v.length ? `${v.length}fr` : ""].filter(Boolean).join(" · ");
+  document.getElementById("dPrompt").textContent = v.prompt || "";
+  const ni = document.getElementById("noteInput");
+  ni.value = v.note || "";
+  ni.dataset.rel = v.rel;
+  const nl = document.getElementById("noteLabel");
+  nl.textContent = v.note ? "Note (C to edit)" : "C — add note";
+  nl.className = v.note ? "has-note" : "";
+  document.getElementById("btnKeep").classList.toggle("on", !!v.keep);
+  document.getElementById("btnReject").classList.toggle("on", !!v.reject);
+}
+
+function toggleDetailWide() {
+  const d = document.getElementById("detail");
+  d.classList.remove("hidden");
+  d.classList.toggle("wide");
+  document.getElementById("btnWide").textContent = d.classList.contains("wide") ? "⇔" : "⇔";
+}
+function toggleDetail() {
+  const d = document.getElementById("detail");
+  if (d.classList.contains("hidden")) {
+    d.classList.remove("hidden");
+  } else {
+    d.classList.add("hidden");
+  }
+}
+
+function renderPending(jobs) {
+  const el = document.getElementById("pendingList");
+  const active = jobs.filter(j => j.status !== "done");
+  if (!active.length) { el.innerHTML=""; return; }
+  el.innerHTML = active.map(j => `
+    <div class="pending-card">
+      <img src="/peek/${j.character}/${j.name}" style="width:36px;height:36px;object-fit:cover;border-radius:3px" onerror="this.style.display='none'">
+      ${badgeHtml(j.status)}
+      <span style="color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1" title="${j.feedback||''}">${j.feedback ? `[${j.feedback.slice(0,40)}] ` : ""}${j.prompt.slice(0,70)}…</span>
+      <span style="color:#555;white-space:nowrap">${ago(j.submitted)}</span>
+    </div>`).join("");
+}
+
+function setActive(i) {
+  activeVid = i;
+  // Update border without full re-render to avoid video flicker
+  document.querySelectorAll(".card").forEach(c => c.classList.remove("active"));
+  document.querySelector(`.card[data-idx="${i}"]`)?.classList.add("active");
+  document.querySelector(`.card[data-idx="${i}"]`)?.scrollIntoView({block: "nearest"});
+  updateDetail(true);
+}
+
+async function markVideo(i, patch) {
+  const v = currentVideos[i];
+  if (!v) return;
+  Object.assign(v, patch);
+  // Update card classes directly
+  const card = document.querySelector(`.card[data-idx="${i}"]`);
+  if (card) {
+    card.classList.toggle("keep", !!v.keep);
+    card.classList.toggle("reject", !!v.reject);
+    let badge = card.querySelector(".badge-k, .badge-r");
+    if (badge) badge.remove();
+    if (v.keep) card.insertAdjacentHTML("beforeend", '<span class="badge-k">K</span>');
+    else if (v.reject) card.insertAdjacentHTML("beforeend", '<span class="badge-r">✗</span>');
+  }
+  document.getElementById("btnKeep").classList.toggle("on", !!v.keep);
+  document.getElementById("btnReject").classList.toggle("on", !!v.reject);
+  await fetch(`/api/mark_video/${v.rel}`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(patch),
+  }).catch(() => {});
+}
+
+function toggleMark(field) {
+  const v = currentVideos[activeVid];
+  if (!v) return;
+  if (field === "keep")   markVideo(activeVid, {keep: !v.keep, reject: false});
+  if (field === "reject") markVideo(activeVid, {reject: !v.reject, keep: false});
+}
+
+function openModal(i) {
+  const v = currentVideos[i];
+  const mv = document.getElementById("modalVideo");
+  mv.src = `/local_video/${v.rel}`;
+  mv.muted = false; // unmute for fullscreen
+  document.getElementById("modalMeta").textContent = v.prompt ? v.prompt.slice(0, 160) + (v.prompt.length>160?"…":"") : "";
+  document.getElementById("modal").classList.add("show");
+  mv.play().catch(() => { mv.muted = true; mv.play(); });
+}
+function openModalActive() { if (currentVideos[activeVid]) openModal(activeVid); }
+function closeModal() {
+  document.getElementById("modal").classList.remove("show");
+  const mv = document.getElementById("modalVideo");
+  mv.pause(); mv.src = "";
+}
+
+async function saveNote() {
+  const ni = document.getElementById("noteInput");
+  const rel = ni.dataset.rel;
+  if (!rel) return;
+  const note = ni.value;
+  const v = currentVideos.find(x => x.rel === rel);
+  if (v) v.note = note;
+  // Update card badge
+  const idx = currentVideos.indexOf(v);
+  const card = document.querySelector(`.card[data-idx="${idx}"]`);
+  if (card) {
+    let nb = card.querySelector(".badge-n");
+    if (note && !nb) card.insertAdjacentHTML("beforeend", '<span class="badge-n">N</span>');
+    else if (!note && nb) nb.remove();
+  }
+  const nl = document.getElementById("noteLabel");
+  nl.textContent = note ? "Note (C to edit)" : "C — add note";
+  nl.className = note ? "has-note" : "";
+  await fetch(`/api/mark_video/${rel}`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({note}),
+  }).catch(() => {});
+}
+
+function openNote() {
+  const ni = document.getElementById("noteInput");
+  ni.focus();
+  ni.select();
+}
+
+function openRerun(i) {
+  rerunTarget = currentVideos[i];
+  document.getElementById("rerunOrigPrompt").textContent = rerunTarget.prompt || "(no prompt saved)";
+  document.getElementById("rerunFeedback").value = "";
+  document.getElementById("rerunStatus").textContent = "";
+  if (rerunTarget.length) {
+    const sel = document.getElementById("rerunLen");
+    for (const o of sel.options) { if (parseInt(o.value) === rerunTarget.length) { sel.value = rerunTarget.length; break; } }
+  }
+  document.getElementById("rerunMode").value = "fast";
+  document.getElementById("rerunDlg").classList.add("show");
+  document.getElementById("rerunFeedback").focus();
+}
+function openRerunActive() { if (currentVideos[activeVid]) openRerun(activeVid); }
+function closeRerun() {
+  document.getElementById("rerunDlg").classList.remove("show");
+  rerunTarget = null;
+}
+
+async function submitRerun() {
+  if (!rerunTarget) return;
+  const feedback = document.getElementById("rerunFeedback").value.trim();
+  if (!feedback) { document.getElementById("rerunStatus").textContent = "Add feedback first."; return; }
+  document.getElementById("rerunGoBtn").disabled = true;
+  document.getElementById("rerunStatus").textContent = "Submitting…";
+  try {
+    const r = await fetch("/api/rerun", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        character: rerunTarget.character,
+        src_name: rerunTarget.src_name,
+        original_prompt: rerunTarget.prompt,
+        feedback,
+        width: rerunTarget.width || 640,
+        height: rerunTarget.height || 640,
+        length: parseInt(document.getElementById("rerunLen").value),
+        mode: document.getElementById("rerunMode").value,
+      }),
+    });
+    const d = await r.json();
+    if (d.error) { document.getElementById("rerunStatus").textContent = "Error: " + d.error; return; }
+    closeRerun();
+  } catch(e) {
+    document.getElementById("rerunStatus").textContent = "Error: " + e.message;
+  } finally {
+    document.getElementById("rerunGoBtn").disabled = false;
+  }
+}
+
+document.getElementById("noteInput").addEventListener("keydown", e => {
+  if (e.key === "Escape") { e.preventDefault(); saveNote(); document.getElementById("noteInput").blur(); }
+  else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveNote(); document.getElementById("noteInput").blur(); }
+});
+document.getElementById("noteInput").addEventListener("blur", () => saveNote());
+
+document.getElementById("modal").addEventListener("click", e => { if (e.target === document.getElementById("modal")) closeModal(); });
+document.getElementById("rerunDlg").addEventListener("click", e => { if (e.target === document.getElementById("rerunDlg")) closeRerun(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { closeModal(); closeRerun(); closeUpload(); return; }
+  if (e.target === document.getElementById("noteInput")) return;
+  if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+  if (document.getElementById("rerunDlg").classList.contains("show")) return;
+  if (document.getElementById("modal").classList.contains("show")) {
+    if (e.key === "ArrowRight") { e.preventDefault(); setActive(Math.min(activeVid + 1, currentVideos.length - 1)); openModal(activeVid); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); setActive(Math.max(activeVid - 1, 0)); openModal(activeVid); }
+    return;
+  }
+  const k = e.key;
+  if (k === "ArrowRight" || k === "ArrowDown") { e.preventDefault(); setActive(Math.min(activeVid + 1, currentVideos.length - 1)); }
+  else if (k === "ArrowLeft" || k === "ArrowUp") { e.preventDefault(); setActive(Math.max(activeVid - 1, 0)); }
+  else if (k === "Enter") openModalActive();
+  else if (k.toLowerCase() === "z") toggleMark("keep");
+  else if (k.toLowerCase() === "x") toggleMark("reject");
+  else if (k.toLowerCase() === "r") openRerunActive();
+  else if (k.toLowerCase() === "w") toggleDetailWide();
+  else if (k.toLowerCase() === "d") toggleDetail();
+  else if (k.toLowerCase() === "c") { e.preventDefault(); openNote(); }
+});
+
+// ── Upload & Animate ────────────────────────────────────────────────────────
+const LORAS = ["Breast_Physics","Bouncing_Boobs","Braless","Anal_Sex","PenisLora","BottomTS","K3NK_4llinOne","WalkToward"];
+const LORA_DEFAULTS = new Set(["Breast_Physics","Bouncing_Boobs"]);
+
+let uploadedFile = null;
+let uploadSavedStem = null;
+
+function snap16(n) { return Math.max(16, Math.round(n / 16) * 16); }
+
+function buildResOptions(srcW, srcH) {
+  const sel = document.getElementById("uploadRes");
+  sel.innerHTML = "";
+  const maxDim = 960;
+  const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+  [{f:1,label:"Full"},{f:0.5,label:"Half"},{f:0.25,label:"Quarter"}].forEach(({f,label}) => {
+    const w = snap16(srcW * scale * f), h = snap16(srcH * scale * f);
+    if (w < 256 || h < 256) return;
+    const o = new Option(`${label} ${w}×${h}`, `${w}x${h}`);
+    sel.add(o);
+  });
+}
+
+function buildLoraGrid(checked = LORA_DEFAULTS, strengths = {}) {
+  const grid = document.getElementById("uploadLoraGrid");
+  grid.innerHTML = LORAS.map(name => `
+    <div class="lora-chip">
+      <input type="checkbox" id="lc_${name}" value="${name}" ${checked.has(name) ? "checked" : ""}>
+      <label for="lc_${name}">${name.replace(/_/g," ")}</label>
+      <input class="lora-strength" id="ls_${name}" type="number" value="${strengths[name] ?? 0.7}" min="0.1" max="1.5" step="0.05">
+    </div>`).join("");
+}
+
+function openUpload() {
+  uploadedFile = null;
+  uploadSavedStem = null;
+  document.getElementById("uploadDlg").classList.add("show");
+  document.getElementById("uploadPrompt").focus();
+  buildLoraGrid();
+  // reset resolution to default until image loaded
+  document.getElementById("uploadRes").innerHTML = '<option value="640x640">640×640</option>';
+}
+
+function closeUpload() {
+  document.getElementById("uploadDlg").classList.remove("show");
+  document.getElementById("uploadFile").value = "";
+  document.getElementById("uploadPreview").style.display = "none";
+  document.getElementById("uploadDropLabel").style.display = "";
+  document.getElementById("uploadStatus").textContent = "";
+  uploadedFile = null; uploadSavedStem = null;
+}
+
+function onFileChosen(file) {
+  if (!file) return;
+  uploadedFile = file;
+  uploadSavedStem = null; // new file = invalidate any prior plan save
+  const url = URL.createObjectURL(file);
+  const prev = document.getElementById("uploadPreview");
+  prev.onload = () => {
+    buildResOptions(prev.naturalWidth, prev.naturalHeight);
+  };
+  prev.src = url;
+  prev.style.display = "block";
+  document.getElementById("uploadDropLabel").style.display = "none";
+}
+
+const uploadDrop = document.getElementById("uploadDrop");
+uploadDrop.addEventListener("dragover", e => { e.preventDefault(); uploadDrop.classList.add("over"); });
+uploadDrop.addEventListener("dragleave", () => uploadDrop.classList.remove("over"));
+uploadDrop.addEventListener("drop", e => {
+  e.preventDefault(); uploadDrop.classList.remove("over");
+  const f = e.dataTransfer?.files?.[0];
+  if (f) onFileChosen(f);
+});
+
+document.addEventListener("paste", e => {
+  if (!document.getElementById("uploadDlg").classList.contains("show")) return;
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith("image/")) {
+      const file = item.getAsFile();
+      if (file) { onFileChosen(file); break; }
+    }
+  }
+});
+
+
+async function submitUpload() {
+  if (!uploadedFile) { document.getElementById("uploadStatus").textContent = "Choose an image first."; return; }
+  const prompt = document.getElementById("uploadPrompt").value.trim();
+  if (!prompt) { document.getElementById("uploadStatus").textContent = "Add a prompt."; return; }
+
+  const [w, h] = document.getElementById("uploadRes").value.split("x").map(Number);
+  const content_loras = LORAS
+    .filter(n => document.getElementById(`lc_${n}`)?.checked)
+    .map(n => [n, parseFloat(document.getElementById(`ls_${n}`).value)]);
+
+  const fd = new FormData();
+  fd.append("image", uploadedFile);
+  fd.append("prompt", prompt);
+  fd.append("width", w);
+  fd.append("height", h);
+  fd.append("length", document.getElementById("uploadLen").value);
+  fd.append("mode", document.getElementById("uploadMode").value);
+  fd.append("content_loras", JSON.stringify(content_loras));
+  if (uploadSavedStem) fd.append("_saved_stem", uploadSavedStem);
+
+  document.getElementById("uploadGoBtn").disabled = true;
+  document.getElementById("uploadStatus").textContent = "Submitting…";
+  try {
+    const r = await fetch("/api/animate_upload", { method: "POST", body: fd });
+    const d = await r.json();
+    if (d.error) { document.getElementById("uploadStatus").textContent = "Error: " + d.error; return; }
+    closeUpload();
+  } catch(e) {
+    document.getElementById("uploadStatus").textContent = "Error: " + e.message;
+  } finally {
+    document.getElementById("uploadGoBtn").disabled = false;
+  }
+}
+
+document.getElementById("uploadDlg").addEventListener("click", e => {
+  if (e.target === document.getElementById("uploadDlg")) closeUpload();
+});
+
+async function poll() {
+  const jobs = await fetch("/api/jobs").then(r=>r.json()).catch(()=>[]);
+  const active = jobs.filter(j => (j.status==="queued"||j.status==="running") && j.prompt_id);
+  await Promise.all(active.map(j => fetch(`/api/animate/status/${j.prompt_id}`).catch(()=>{})));
+  const updated = await fetch("/api/jobs").then(r=>r.json()).catch(()=>jobs);
+  renderPending(updated);
+  if (document.activeElement === document.getElementById("noteInput")) return;
+  const videos = await fetch("/api/local_videos").then(r=>r.json()).catch(()=>[]);
+  videos.sort((a, b) => b.mtime - a.mtime);
+  renderGrid(videos);
+}
+
+async function purgeRejected() {
+  const btn = document.getElementById("btnPurge");
+  const rejected = currentVideos.filter(v => v.reject);
+  if (!rejected.length) { alert("No rejected videos."); return; }
+  if (!confirm(`Delete ${rejected.length} rejected video(s) from disk? This cannot be undone.`)) return;
+  btn.disabled = true;
+  btn.textContent = "Deleting…";
+  const r = await fetch("/api/purge_rejected_videos", {method:"POST"}).then(r=>r.json()).catch(()=>({error:"failed"}));
+  btn.disabled = false;
+  btn.textContent = "🗑 Delete Rejected";
+  if (r.error) { alert("Error: " + r.error); return; }
+  activeVid = 0;
+  await poll();
+}
+
+poll();
+setInterval(poll, 4000);
+</script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HQ Compare</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #111; color: #eee; font-family: monospace; user-select: none; }
+
+  #toolbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; background: #1a1a1a; border-bottom: 1px solid #333;
+    flex-wrap: wrap;
+  }
+  #toolbar select, #toolbar button {
+    background: #2a2a2a; color: #eee; border: 1px solid #444;
+    padding: 5px 10px; font-family: monospace; font-size: 13px; cursor: pointer;
+  }
+  #toolbar select:focus, #toolbar button:hover { border-color: #888; outline: none; }
+  #pair-info { font-size: 12px; color: #888; margin-left: auto; }
+  #nav { display: flex; gap: 6px; }
+  #nav button { padding: 5px 14px; }
+  #nav button:disabled { opacity: 0.3; cursor: default; }
+
+  #labels {
+    display: flex; justify-content: space-between;
+    padding: 6px 14px; background: #181818; font-size: 12px; color: #666;
+  }
+  .label-orig { color: #f90; }
+  .label-hq   { color: #4cf; }
+
+  #stage {
+    position: relative; overflow: hidden; cursor: ew-resize;
+    width: 100%; height: calc(100vh - 90px);
+    display: flex; align-items: center; justify-content: center;
+    background: #0d0d0d;
+  }
+
+  /* Both images fill stage, HQ on top clipped by divider */
+  #img-orig, #img-hq {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    object-fit: contain; pointer-events: none;
+  }
+  #img-hq {
+    clip-path: inset(0 50% 0 0); /* updated by JS */
+  }
+
+  #divider {
+    position: absolute; top: 0; left: 50%; width: 2px; height: 100%;
+    background: rgba(255,255,255,0.7); pointer-events: none; transform: translateX(-1px);
+  }
+  #divider-handle {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(255,255,255,0.85);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; color: #333; pointer-events: none;
+  }
+
+  #no-pairs {
+    position: absolute; color: #555; font-size: 14px; display: none;
+  }
+
+  #hint {
+    position: absolute; bottom: 10px; right: 12px;
+    font-size: 11px; color: #444; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <label style="font-size:13px; color:#aaa;">Character:</label>
+  <select id="char-select"><option value="">— pick —</option></select>
+  <div id="nav">
+    <button id="btn-prev" disabled>◀ prev</button>
+    <button id="btn-next" disabled>next ▶</button>
+  </div>
+  <div id="pair-info"></div>
+</div>
+
+<div id="labels">
+  <span class="label-orig">◀ ORIGINAL</span>
+  <span class="label-hq">HQ ENHANCED ▶</span>
+</div>
+
+<div id="stage">
+  <img id="img-orig" src="" alt="">
+  <img id="img-hq"   src="" alt="">
+  <div id="divider"><div id="divider-handle">⇔</div></div>
+  <div id="no-pairs">No HQ pairs found for this character yet.</div>
+  <div id="hint">drag or ← → to slide · ↑↓ to change image</div>
+</div>
+
+<script>
+const stage = document.getElementById('stage');
+const imgOrig = document.getElementById('img-orig');
+const imgHq   = document.getElementById('img-hq');
+const divider = document.getElementById('divider');
+const handle  = document.getElementById('divider-handle');
+const noPairs = document.getElementById('no-pairs');
+const pairInfo = document.getElementById('pair-info');
+const btnPrev = document.getElementById('btn-prev');
+const btnNext = document.getElementById('btn-next');
+const charSelect = document.getElementById('char-select');
+
+let pairs = [];
+let idx = 0;
+let splitPct = 50; // 0-100
+let dragging = false;
+
+// ── load characters ──
+fetch('/api/characters').then(r => r.json()).then(chars => {
+  chars.forEach(c => {
+    const o = document.createElement('option');
+    o.value = o.textContent = c;
+    charSelect.appendChild(o);
+  });
+});
+
+charSelect.addEventListener('change', () => {
+  loadPairs(charSelect.value);
+});
+
+function loadPairs(char) {
+  if (!char) return;
+  fetch(`/api/compare/pairs/${char}`).then(r => r.json()).then(data => {
+    pairs = data;
+    idx = 0;
+    noPairs.style.display = pairs.length === 0 ? 'block' : 'none';
+    if (pairs.length) showPair(0);
+    updateNav();
+  });
+}
+
+function showPair(i) {
+  const p = pairs[i];
+  const char = charSelect.value;
+  imgOrig.src = `/img/${char}/${p.orig}`;
+  imgHq.src   = `/img/${char}/${p.hq}`;
+  pairInfo.textContent = `${i + 1} / ${pairs.length}  ·  orig: ${p.orig}  →  hq: ${p.hq}`;
+  setSplit(50); // reset to center
+}
+
+function updateNav() {
+  btnPrev.disabled = idx === 0;
+  btnNext.disabled = idx >= pairs.length - 1;
+}
+
+btnPrev.addEventListener('click', () => { if (idx > 0) { idx--; showPair(idx); updateNav(); } });
+btnNext.addEventListener('click', () => { if (idx < pairs.length - 1) { idx++; showPair(idx); updateNav(); } });
+
+// ── slider drag ──
+function setSplit(pct) {
+  splitPct = Math.max(0, Math.min(100, pct));
+  const pctStr = splitPct.toFixed(1) + '%';
+  imgHq.style.clipPath = `inset(0 ${(100 - splitPct).toFixed(1)}% 0 0)`;
+  divider.style.left = pctStr;
+}
+
+function pctFromEvent(e) {
+  const rect = stage.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  return ((clientX - rect.left) / rect.width) * 100;
+}
+
+stage.addEventListener('mousedown',  e => { dragging = true; setSplit(pctFromEvent(e)); });
+stage.addEventListener('touchstart', e => { dragging = true; setSplit(pctFromEvent(e)); }, { passive: true });
+window.addEventListener('mousemove',  e => { if (dragging) setSplit(pctFromEvent(e)); });
+window.addEventListener('touchmove',  e => { if (dragging) setSplit(pctFromEvent(e)); }, { passive: true });
+window.addEventListener('mouseup',   () => dragging = false);
+window.addEventListener('touchend',  () => dragging = false);
+
+// ── keyboard ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' && !e.shiftKey) {
+    if (pairs.length && idx < pairs.length - 1) { idx++; showPair(idx); updateNav(); }
+  } else if (e.key === 'ArrowLeft' && !e.shiftKey) {
+    if (idx > 0) { idx--; showPair(idx); updateNav(); }
+  } else if (e.key === 'ArrowUp') {
+    setSplit(Math.min(100, splitPct + 5));
+  } else if (e.key === 'ArrowDown') {
+    setSplit(Math.max(0, splitPct - 5));
+  } else if (e.key === ' ') {
+    setSplit(splitPct < 50 ? 100 : 0); // toggle full orig / full hq
+    e.preventDefault();
+  }
+});
+</script>
+</body>
+</html>

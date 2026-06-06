@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Animate Queue</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #111; color: #eee; font-family: monospace; font-size: 13px; padding: 16px; }
+h1 { font-size: 16px; margin-bottom: 16px; color: #aaa; }
+a { color: #7af; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+#jobs { display: flex; flex-direction: column; gap: 10px; }
+
+.job {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 12px;
+  align-items: start;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 10px;
+}
+.job.done   { border-left: 3px solid #4c4; }
+.job.error  { border-left: 3px solid #c44; }
+.job.running{ border-left: 3px solid #ca4; }
+.job.queued { border-left: 3px solid #448; }
+
+.thumb img { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; }
+.thumb { width: 64px; }
+
+.info { display: flex; flex-direction: column; gap: 4px; }
+.info .name { color: #ccc; font-weight: bold; }
+.info .prompt { color: #888; white-space: pre-wrap; word-break: break-word; max-height: 3em; overflow: hidden; }
+.info .meta { color: #555; font-size: 11px; }
+
+.status-col { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 80px; }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+.badge.queued  { background: #223; color: #88c; }
+.badge.running { background: #332; color: #ca4; }
+.badge.done    { background: #132; color: #4c4; }
+.badge.error   { background: #311; color: #c44; }
+
+.videos { display: flex; flex-direction: column; gap: 4px; }
+.videos a { font-size: 11px; color: #7af; }
+
+.spinner { display: inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#empty { color: #444; padding: 32px 0; text-align: center; }
+</style>
+</head>
+<body>
+<h1>⟳ Animate Queue &nbsp;<a href="/" style="font-size:12px;color:#555">← back</a></h1>
+<div id="jobs"><div id="empty">No jobs yet.</div></div>
+
+<script>
+const POLL_MS = 3000;
+
+function ago(ts) {
+  const s = Math.round(Date.now() / 1000 - ts);
+  if (s < 60) return s + "s ago";
+  if (s < 3600) return Math.floor(s/60) + "m ago";
+  return Math.floor(s/3600) + "h ago";
+}
+
+function statusIcon(s) {
+  if (s === "running") return '<span class="spinner">⟳</span> running';
+  if (s === "queued")  return '<span class="spinner">⟳</span> queued';
+  if (s === "done")    return '✓ done';
+  return '✗ error';
+}
+
+function renderJobs(jobs) {
+  const el = document.getElementById("jobs");
+  if (!jobs.length) { el.innerHTML = '<div id="empty">No jobs yet.</div>'; return; }
+  el.innerHTML = jobs.map(j => {
+    const thumbUrl = `/peek/${j.character}/${j.name}`;
+    const vids = (j.videos || []).map(v =>
+      `<a href="${v.url}" target="_blank">▶ ${v.url.split('/').pop().split('?')[0]}</a>`
+    ).join('');
+    return `<div class="job ${j.status}">
+      <div class="thumb"><img src="${thumbUrl}" onerror="this.style.display='none'"></div>
+      <div class="info">
+        <div class="name">${j.character} / ${j.name}</div>
+        <div class="prompt">${j.prompt}</div>
+        <div class="meta">${j.width}×${j.height} · ${ago(j.submitted)}</div>
+        ${vids ? `<div class="videos">${vids}</div>` : ''}
+      </div>
+      <div class="status-col">
+        <span class="badge ${j.status}">${statusIcon(j.status)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function pollJobs() {
+  // For each queued/running job, hit the status endpoint to update server-side state
+  const jobs = await fetch('/api/jobs').then(r => r.json()).catch(() => []);
+  const active = jobs.filter(j => j.status === 'queued' || j.status === 'running');
+  await Promise.all(active.map(j =>
+    fetch(`/api/animate/status/${j.prompt_id}`).catch(() => {})
+  ));
+  // Re-fetch after status updates
+  const updated = await fetch('/api/jobs').then(r => r.json()).catch(() => jobs);
+  renderJobs(updated);
+}
+
+pollJobs();
+setInterval(pollJobs, POLL_MS);
+</script>
+</body>
+</html>
