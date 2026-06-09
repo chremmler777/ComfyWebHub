@@ -630,7 +630,12 @@ def redo_pag(character: str, name: str):
 
 @app.get("/api/stars")
 def stars_gallery():
-    """Return all images with stars=3 across all characters, sorted by character then mtime."""
+    """Return all images with stars==n (default 3) across all characters, sorted by char then mtime.
+    Pass ?n=1|2|3 to filter by star level. ?n=0 returns ALL starred (1-3)."""
+    try:
+        n = int(request.args.get("n", 3))
+    except (TypeError, ValueError):
+        n = 3
     if not OUTPUT_ROOT.exists():
         return jsonify([])
     result = []
@@ -641,7 +646,8 @@ def stars_gallery():
         marks = load_marks(char)
         hq_done = hq_rendered_set(char, p)
         for stem, entry in marks.items():
-            if entry.get("stars") == 3:
+            s = entry.get("stars", 0)
+            if (n == 0 and s >= 1) or (n != 0 and s == n):
                 png = p / f"{stem}.png"
                 if png.is_file():
                     st = png.stat()
@@ -655,7 +661,7 @@ def stars_gallery():
                         "hq": entry.get("hq"),
                         "hq_done": stem in hq_done,
                         "note": entry.get("note", ""),
-                        "stars": 3,
+                        "stars": s,
                         "pipeline": pl.get("short", "?"),
                         "pipeline_name": pl.get("name", ""),
                     })
@@ -819,7 +825,9 @@ def comfy_preview():
 
 
 @app.get("/stars")
-def stars_page():
+@app.get("/stars/<int:n>")
+def stars_page(n=3):
+    # one template, level-aware (reads star level from the URL path: /stars=3, /stars/2, /stars/1, /stars/0=all)
     resp = send_from_directory("static", "stars.html")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
