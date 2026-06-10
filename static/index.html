@@ -178,6 +178,7 @@
   <span class="stat" id="stat"></span>
   <div id="reviewBar" title="reviewed (keep+reject) / total"><div id="reviewFill"></div></div>
   <button id="exportBtn">preview</button>
+  <button id="learnBtn" title="What's converting — runs learn.py on the keep/reject signal">📊 learn</button>
   <button id="importKeepersBtn" class="import-btn" title="Import keepers from memory .md files">↓ import keepers</button>
   <button id="submitBtn" style="background:#4c4;color:#111;font-weight:bold">submit to claude</button>
   <span class="stat" id="submitStat"></span>
@@ -1144,6 +1145,20 @@ $("exportBtn").onclick = async () => {
   const r = await fetch(`/api/export/${char}`);
   $("exportText").value = await r.text();
   $("exportBox").classList.add("show");
+};
+$("learnBtn").onclick = async () => {
+  const b = $("learnBtn"); b.disabled = true; b.textContent = "learning…";
+  try {
+    const r = await fetch("/api/learn");
+    const d = await r.json();
+    $("exportText").value = d.report || "(no report)";
+    $("exportBox").classList.add("show");
+  } catch (e) {
+    $("exportText").value = "learn failed: " + e.message;
+    $("exportBox").classList.add("show");
+  } finally {
+    b.disabled = false; b.textContent = "📊 learn";
+  }
 };
 $("submitBtn").onclick = async () => {
   const r = await fetch(`/api/submit/${char}`, {method: "POST"});

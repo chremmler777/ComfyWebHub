@@ -515,6 +515,20 @@ def submit(character: str):
 import requests as http_requests
 
 
+@app.get("/api/learn")
+def api_learn():
+    """Run learn.py and return its conversion report (what features over/under-convert)."""
+    import subprocess
+    dirs = [d for d in request.args.get("dirs", "").split(",") if d]
+    cmd = ["python3", "/home/chremmler/claude/comfy2/learn.py"] + dirs
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        out = r.stdout or r.stderr or "(no output)"
+    except Exception as e:
+        out = f"learn failed: {e}"
+    return jsonify({"report": out})
+
+
 @app.get("/api/comfy_queue")
 def comfy_queue():
     try:
