@@ -438,6 +438,46 @@ def export(character: str):
     return build_export(character), 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
+def _log_learning(character, marks):
+    """Append keep/reject verdict + prompt for each marked image to data/learning_log.jsonl.
+    Deduped by (char, stem). Called from submit() BEFORE rejects are deleted so the signal survives."""
+    import json as _json
+    from PIL import Image as _Img
+    log = DATA_DIR / "learning_log.jsonl"
+    char_dir = OUTPUT_ROOT / character
+    seen = set()
+    if log.is_file():
+        for ln in log.read_text().splitlines():
+            try:
+                o = _json.loads(ln); seen.add((o["char"], o["stem"]))
+            except Exception:
+                pass
+    out = []
+    for stem, m in marks.items():
+        if not (m.get("keep") or m.get("reject")):
+            continue
+        if (character, stem) in seen:
+            continue
+        png = char_dir / f"{stem}.png"
+        if not png.is_file():
+            continue
+        prompt = ""
+        try:
+            d = _json.loads(_Img.open(png).info.get("prompt", "{}"))
+            for n in d.values():
+                if isinstance(n, dict) and n.get("class_type") == "CLIPTextEncode":
+                    t = n["inputs"].get("text", "")
+                    if isinstance(t, str) and len(t) > 120 and "worst quality" not in t.lower():
+                        prompt = t; break
+        except Exception:
+            pass
+        out.append(_json.dumps({"char": character, "stem": stem, "keep": bool(m.get("keep")),
+                                "stars": m.get("stars", 0), "prompt": prompt[:2000]}))
+    if out:
+        with open(log, "a") as f:
+            f.write("\n".join(out) + "\n")
+
+
 @app.post("/api/submit/<character>")
 def submit(character: str):
     body = build_submit_delta(character)   # delta-only payload for the Claude sync hook
@@ -445,6 +485,12 @@ def submit(character: str):
     path.write_text(body)
     marks = load_marks(character)
     keepers = sum(1 for v in marks.values() if v.get("keep"))
+    # LEARN-EVERY-RUN: log keep/reject verdict + prompt for each marked image to a growing JSONL,
+    # BEFORE rejects are deleted below (so the reject signal survives). learn.py reads this.
+    try:
+        _log_learning(character, marks)
+    except Exception as e:
+        print("[learn] log skipped:", e)
     # delete rejected images from disk, clear their entries
     char_dir = OUTPUT_ROOT / character
     deleted = 0
