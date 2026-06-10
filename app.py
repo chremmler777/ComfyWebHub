@@ -390,6 +390,49 @@ def build_export(character: str) -> str:
     return "\n".join(lines)
 
 
+def build_submit_delta(character: str) -> str:
+    """DELTA submit body: only keepers NEW / CHANGED / REMOVED since the last submit, + a count.
+    Keeps the Claude-side sync payload tiny instead of re-dumping the whole keeper list every time.
+    Snapshot of last-submitted keepers lives in data/<char>_lastsub.json."""
+    import json as _json
+    marks = load_marks(character)
+    cur = {k: {"stars": v.get("stars", 0), "note": v.get("note", "")}
+           for k, v in marks.items() if v.get("keep")}
+    snap_path = DATA_DIR / f"{character}_lastsub.json"
+    prev = {}
+    if snap_path.is_file():
+        try:
+            prev = _json.loads(snap_path.read_text())
+        except Exception:
+            prev = {}
+    new = [k for k in cur if k not in prev]
+    changed = [k for k in cur if k in prev and cur[k] != prev[k]]
+    removed = [k for k in prev if k not in cur]
+    def line(k):
+        s, n = cur[k]["stars"], cur[k]["note"]
+        tail = (f" · {'★'*s}" if s else "") + (f" — {n}" if n else "")
+        return f"- {k}{tail}"
+    L = [f"# {character} — {len(cur)} keepers total · {len(new)} new · {len(changed)} changed · {len(removed)} removed since last submit", ""]
+    if not (new or changed or removed):
+        L.append("(no keeper changes since last submit)")
+    if new:
+        L.append("## NEW keepers"); L += [line(k) for k in sorted(new)]; L.append("")
+    if changed:
+        L.append("## CHANGED (star/note)")
+        for k in sorted(changed):
+            was = prev[k]
+            L.append(line(k) + f"   [was {'★'*was.get('stars',0) or '0★'}{' / '+was['note'] if was.get('note') else ''}]")
+        L.append("")
+    if removed:
+        L.append("## REMOVED (no longer keeper)"); L += [f"- {k}" for k in sorted(removed)]; L.append("")
+    # new ★★★ this round are the high-signal ones — call them out
+    new3 = [k for k in (new + changed) if cur[k]["stars"] == 3]
+    if new3:
+        L.append("## ★★★ (new/changed this round)"); L += [f"- {k}" for k in sorted(new3)]; L.append("")
+    snap_path.write_text(_json.dumps(cur))
+    return "\n".join(L)
+
+
 @app.get("/api/export/<character>")
 def export(character: str):
     return build_export(character), 200, {"Content-Type": "text/plain; charset=utf-8"}
@@ -397,7 +440,7 @@ def export(character: str):
 
 @app.post("/api/submit/<character>")
 def submit(character: str):
-    body = build_export(character)
+    body = build_submit_delta(character)   # delta-only payload for the Claude sync hook
     path = DATA_DIR / f"{character}_submit.md"
     path.write_text(body)
     marks = load_marks(character)
