@@ -94,6 +94,7 @@
 </div>
 
 <script>
+const IMG_EP = matchMedia('(pointer: coarse)').matches ? '/big' : '/img';  // phones get mid-res JPEG (Wi-Fi saver)
 const stage = document.getElementById('stage');
 const imgOrig = document.getElementById('img-orig');
 const imgHq   = document.getElementById('img-hq');
@@ -137,8 +138,8 @@ function loadPairs(char) {
 function showPair(i) {
   const p = pairs[i];
   const char = charSelect.value;
-  imgOrig.src = `/img/${char}/${p.orig}`;
-  imgHq.src   = `/img/${char}/${p.hq}`;
+  imgOrig.src = `${IMG_EP}/${char}/${p.orig}`;
+  imgHq.src   = `${IMG_EP}/${char}/${p.hq}`;
   pairInfo.textContent = `${i + 1} / ${pairs.length}  ·  orig: ${p.orig}  →  hq: ${p.hq}`;
   setSplit(50); // reset to center
 }

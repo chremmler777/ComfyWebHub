@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>keeper-web</title>
 <style>
   :root { color-scheme: dark; }
@@ -116,12 +117,29 @@
   #progressText { font-size:0.72em; color:#888; text-align:center; margin-top:3px; }
   .similar-row { display: flex; gap: 10px; align-items: center; justify-content: center; flex-shrink: 0; }
   .similar-toast { color: #4c4; font-size: 0.9em; font-weight: bold; }
+  /* Mobile touch action bar inside modal */
+  #touchBar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; flex-shrink: 0; margin: 8px 0 4px; }
+  #touchBar button { min-height: 48px; min-width: 64px; padding: 10px 16px; border: none; border-radius: 6px;
+    background: #2a2a30; color: #ddd; font-size: 1.05em; font-weight: bold; cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+  #touchBar button:active { background: #444; }
+  #touchBar button.tb-keep { background: #1a4a1a; color: #6f9; }
+  #touchBar button.tb-reject { background: #4a1a1a; color: #f88; }
+  #touchBar button.tb-star { background: #4a3a10; color: gold; }
+  #touchBar button.tb-note { background: #1a2a4a; color: #7af; }
+  @media (max-width: 820px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+    #touchBar button { flex: 1 1 auto; min-width: 80px; font-size: 1.15em; min-height: 52px; }
+    #noteInput { width: 100%; max-width: 100%; }
+  }
   .card .similar-card-btn { position: absolute; bottom: 28px; right: 6px; background: #e84; color: #111; border: none; padding: 4px 10px; border-radius: 3px; font-weight: bold; cursor: pointer; font-size: 0.75em; z-index: 5; }
   .card .similar-card-btn:hover { background: #f96; }
   .card .similar-card-btn.queued { background: #4c4; cursor: default; }
   .card .hq-card-btn { position: absolute; bottom: 28px; left: 6px; background: #48f; color: #fff; border: none; padding: 4px 8px; border-radius: 3px; font-weight: bold; cursor: pointer; font-size: 0.75em; z-index: 5; }
   .card .hq-card-btn:hover { background: #6af; }
   .card .hq-card-btn.queued { background: #4c4; cursor: default; }
+  .card .pr-card-btn { position: absolute; bottom: 28px; left: 52px; background: #1a4a1a; color: #4f9; border: 1px solid #2a6a2a; padding: 4px 8px; border-radius: 3px; font-weight: bold; cursor: pointer; font-size: 0.75em; z-index: 5; }
+  .card .pr-card-btn:hover { background: #2a6a2a; }
+  .card .pr-card-btn.queued { background: #4c4; color: #111; cursor: default; }
   .star-overlay { position: absolute; top: 4px; right: 6px; font-size: 1.15em; line-height: 1; text-shadow: 0 1px 4px #000; z-index: 6; pointer-events: none; }
   .card.stars-3 { box-shadow: 0 0 0 2px gold, 0 0 12px 2px rgba(255,215,0,0.3); }
   .badge.stars { background: gold; color: #111; font-weight: bold; }
@@ -233,8 +251,18 @@
     <button class="similar-btn" id="similarBtn" onclick="makeSimilar()">make similar ×2</button>
     <button class="pag-btn" id="pagBtn" onclick="redoPag()">PAG redo</button>
     <button class="ril55-btn" id="ril55Btn" onclick="makeRil55()">→ RIL55 IL ×2</button>
+    <button class="ril55-btn" id="photorealBtn" onclick="makePhotoreal()">✦ Photoreal pass</button>
     <button class="animate-btn" id="animateBtn" onclick="openAnimate()">▶ animate</button>
     <span class="similar-toast" id="similarToast"></span>
+  </div>
+  <div id="touchBar">
+    <button type="button" onclick="step(-1)">&#9664; Prev</button>
+    <button type="button" class="tb-keep" onclick="tapKeep()">&#10003; Keep</button>
+    <button type="button" class="tb-reject" onclick="tapReject()">&#10007; Reject</button>
+    <button type="button" class="tb-star" onclick="tapStar()">&#9733; Star</button>
+    <button type="button" class="tb-note" onclick="tapNote()">&#9998; Note</button>
+    <button type="button" onclick="step(1)">Next &#9654;</button>
+    <button type="button" onclick="closeModal()">&#10538; Close</button>
   </div>
   <input id="noteInput" placeholder="note (Enter to save, Esc to close)">
 </div>
@@ -291,9 +319,11 @@
 </div>
 
 <script>
+const IMG_EP = matchMedia('(pointer: coarse)').matches ? '/big' : '/img';  // phones get mid-res JPEG (Wi-Fi saver)
 const HQ_MAP = {1:"face", 2:"hand-cock", 3:"full-2pass"};
 let char = null, items = [], active = 0, noteOpen = false;
 const pendingSimilar = new Set();
+const pendingPhotoreal = new Set();
 let compareOn = false, compareSide = "R"; // R = refine pane active
 let bakeOn = false, bakeIdx = 0, bakeGroup = null; // bake-off grid state
 let peekFullOn = false;
@@ -449,12 +479,15 @@ function render() {
     const hqBtn = it.stars === 3
       ? `<button class="hq-card-btn" data-name="${it.name}">▲HQ</button>`
       : '';
+    const prBtn = it.refined
+      ? ''
+      : `<button class="pr-card-btn ${pendingPhotoreal.has(it.name)?'queued':''}" data-name="${it.name}">${pendingPhotoreal.has(it.name)?'queued':'✦PR'}</button>`;
     const gs = groupSize(it.name);
     const bakeBadge = gs >= 2 ? `<div class="bakeoff-badge">B×${gs}</div>` : '';
     const starClass = it.stars === 3 ? 'stars-3' : '';
     return `
     <div class="card ${it.keep?'keep':''} ${it.reject?'reject':''} ${starClass} ${i===active?'active':''}" data-idx="${i}">
-      <img loading="lazy" src="/img/${char}/${it.file}">
+      <img loading="lazy" decoding="async" src="/thumb/${char}/${it.file}">
       <div class="date">${fmtDate(it.mtime)}</div>
       ${bakeBadge}
       ${starStr(it.stars)}
@@ -468,14 +501,21 @@ function render() {
         ${it.pipeline ? pipelineBadge(it.pipeline, it.pipeline_name) : ''}
       </div>
       ${hqBtn}
+      ${prBtn}
       ${simBtn}
       <div class="label">${it.name}${it.note ? ' · '+it.note : ''}</div>
     </div>`;
   }).join("");
   $("grid").querySelectorAll(".card").forEach(el => {
     el.onclick = e => {
-      if (e.target.closest('.similar-card-btn') || e.target.closest('.hq-card-btn')) return;
+      if (e.target.closest('.similar-card-btn') || e.target.closest('.hq-card-btn') || e.target.closest('.pr-card-btn')) return;
       active = +el.dataset.idx; render(); openModal();
+    };
+  });
+  $("grid").querySelectorAll(".pr-card-btn:not(.queued)").forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      queuePhotorealByName(btn.dataset.name, btn);
     };
   });
   $("grid").querySelectorAll(".similar-card-btn:not(.queued)").forEach(btn => {
@@ -637,8 +677,8 @@ function updateModal() {
     $("zoomwrap").style.display = "none";
     $("compare").classList.add("show");
     $("bakeoff").classList.remove("show");
-    $("imgL").src = L ? `/img/${char}/${L.file}` : "";
-    $("imgR").src = R ? `/img/${char}/${R.file}` : "";
+    $("imgL").src = L ? `${IMG_EP}/${char}/${L.file}` : "";
+    $("imgR").src = R ? `${IMG_EP}/${char}/${R.file}` : "";
     $("capL").innerHTML = `<div class="name">${L?L.name:''}</div>original${L?' · '+fmtInfo(L).split(' · ').slice(1).join(' · '):''}`;
     $("capR").innerHTML = `<div class="name">${R?R.name:''}</div>refine/hq${R?' · '+fmtInfo(R).split(' · ').slice(1).join(' · '):''}`;
     paneCls($("paneL"), L, compareSide === "L");
@@ -651,7 +691,7 @@ function updateModal() {
     $("compare").classList.remove("show");
     $("bakeoff").classList.remove("show");
     resetZoom();
-    $("modalImg").src = `/img/${char}/${cur.file}`;
+    $("modalImg").src = `${IMG_EP}/${char}/${cur.file}`;
     $("modalStars").textContent = cur.stars ? '★'.repeat(cur.stars) : '';
     $("noteInput").value = cur.note || "";
     refreshPeek();
@@ -676,7 +716,7 @@ function renderBakeoff(names) {
     const cls = (i === bakeIdx ? "active " : "") + (it.keep ? "keep " : "") + (it.reject ? "reject " : "");
     return `
       <div class="pane ${cls}" data-bi="${i}">
-        <img src="/img/${char}/${it.file}">
+        <img src="${IMG_EP}/${char}/${it.file}">
         <div class="cap">
           <div class="variant">${variant}${badges.length ? '<span class="badges-inline">'+badges.join('')+'</span>' : ''}</div>
           <div class="peek" id="peek-${i}">loading…</div>
@@ -782,6 +822,12 @@ async function markAt(patch) {
   if ($("modal").classList.contains("show")) updateModal();
 }
 
+// On-screen tap-button helpers (mirror keyboard handlers; reuse markAt/markTarget)
+function tapKeep()   { markAt({keep: !markTarget()?.keep, reject: false}); }
+function tapReject() { markAt({reject: !markTarget()?.reject, keep: false}); }
+function tapStar()   { markAt({stars: ((markTarget()?.stars || 0) + 1) % 4}); }
+function tapNote()   { if (!$("modal").classList.contains("show")) openModal(); noteOpen = true; $("noteInput").focus(); $("noteInput").select(); }
+
 document.addEventListener("keydown", e => {
   if (noteOpen) {
     if (e.key === "Enter") { markAt({note: $("noteInput").value}); noteOpen = false; $("noteInput").blur(); }
@@ -883,6 +929,14 @@ function makeSimilar() {
   const cardBtn = $("grid").querySelector(`.similar-card-btn[data-name="${it.name}"]`);
   queueSimilarByName(it.name, cardBtn);
 }
+async function makePhotoreal() {
+  const it = items[active]; if (!it) return;
+  const btn = $("photorealBtn");
+  btn.disabled = true; btn.textContent = "✦ queuing…";
+  await queuePhotorealByName(it.name, $("grid").querySelector(`.pr-card-btn[data-name="${it.name}"]`));
+  btn.textContent = "✦ queued ✓";
+  setTimeout(() => { btn.disabled = false; btn.textContent = "✦ Photoreal pass"; }, 2500);
+}
 async function makeRil55() {
   const it = items[active]; if (!it) return;
   const btn = $("ril55Btn");
@@ -916,6 +970,26 @@ async function queueHqByName(name, btnEl) {
     }
   } catch(err) {
     if (btnEl) { btnEl.textContent = "▲HQ"; btnEl.classList.remove("queued"); btnEl.disabled = false; }
+  }
+}
+
+async function queuePhotorealByName(name, btnEl) {
+  if (btnEl) { btnEl.textContent = "✦…"; btnEl.classList.add("queued"); btnEl.disabled = true; }
+  pendingPhotoreal.add(name);
+  try {
+    const r = await fetch(`/api/photoreal/${char}/${name}`, {method: "POST"});
+    const data = await r.json();
+    if (data.ok) {
+      if (btnEl) btnEl.textContent = "queued ✓";
+      $("similarToast") && ($("similarToast").textContent = `✦ Photoreal pass queued → ${data.num}`);
+    } else {
+      pendingPhotoreal.delete(name);
+      if (btnEl) { btnEl.textContent = "✦PR"; btnEl.classList.remove("queued"); btnEl.disabled = false; }
+      alert(data.error || "Photoreal queue failed");
+    }
+  } catch(err) {
+    pendingPhotoreal.delete(name);
+    if (btnEl) { btnEl.textContent = "✦PR"; btnEl.classList.remove("queued"); btnEl.disabled = false; }
   }
 }
 

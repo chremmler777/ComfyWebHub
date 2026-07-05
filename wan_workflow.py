@@ -72,6 +72,8 @@ def build_wan_i2v_workflow(
     lightx2v_strength: float = 0.4,
     svi_strength: float = 1.0,
     long_steps: int = 6,
+    prefix_override: str | None = None,
+    rife_fps_mult: float = 2.0,  # 2.0=REAL-TIME (162 frames @ 48fps = 3.375s, matches source motion, user-locked). 4/3=opt-in slow-mo money-shot. 1.6 was a slow-mo regression (1.25x slow). Native >81 frames = CGI drift.
 ) -> dict:
     """
     Returns a ComfyUI API-format workflow dict (for POST /prompt).
@@ -116,13 +118,37 @@ def build_wan_i2v_workflow(
     # Prepend motion control prefix to every prompt for smoother, natural movement.
     # Long mode is for hand-on-cock action scenes (stroke, spin), so it drops the
     # "hands away / not touching penis" clause and the heavy slow-motion language.
-    if long_clip:
+    if prefix_override is not None:
+        # Caller fully controls the prefix (e.g. energetic party clips that must
+        # NOT get the slow-motion / hands-away language). Pass "" for no prefix.
+        # The negative is used exactly as given (no auto LONG/jerk substitution).
+        MOTION_PREFIX = prefix_override
+    elif long_clip:
         MOTION_PREFIX = (
             "cinematic, smooth natural motion, static camera, no camera shake, "
             "no teleporting limbs, fluid body motion, "
         )
         if negative_prompt == DEFAULT_NEGATIVE:
             negative_prompt = LONG_NEGATIVE
+    elif any(w in positive_prompt.lower() for w in (
+            "jerk", "stroke", "strok", "handjob", "hand job", "jacking", "jack off",
+            "tugging", "tug", "pumping", "pumps her cock", "pumps his cock",
+            "rubbing her cock", "rubbing his cock", "masturbat", "fap", "fisting her cock")):
+        # Hand-on-cock action ("jerking"): allow hands on genitals + a rhythmic
+        # stroke. Drop the hands-away clause from the prefix and strip the
+        # hand-suppression + fast-motion terms from the negative (same as long
+        # mode) — but keep the 4-step fast path and the anti-jitter terms so the
+        # cock strokes smoothly instead of vibrating.
+        MOTION_PREFIX = (
+            "cinematic, slow sensual rhythmic stroking, steady smooth rhythm, "
+            "static camera, no camera shake, no teleporting limbs, fluid body motion, "
+        )
+        if negative_prompt == DEFAULT_NEGATIVE:
+            negative_prompt = (
+                DEFAULT_NEGATIVE
+                .replace("hand on penis, touching penis, grabbing penis, stroking penis, hands on genitals, ", "")
+                .replace("sped up motion, fast movement, fast motions, rapid movement, hurried motion, rushed gestures, ", "")
+            )
     else:
         MOTION_PREFIX = (
             "cinematic, extremely slow and deliberate movement, slow motion, languid pace, "
@@ -294,22 +320,42 @@ def build_wan_i2v_workflow(
             "return_with_leftover_noise": "disable",
         })
 
-    # ── VAEDecode → (RIFE) → CreateVideo → SaveVideo ─────────
+    # ── VAEDecode → ColorMatch → (RIFE) → CreateVideo → SaveVideo ─────────
     n_dec = node("VAEDecode", {"samples": [n_ks2, 0], "vae": [n_vae, 0]})
 
+    # Lock exposure/color to the SOURCE image. WAN fast-mode (LightX2V 4-step)
+    # creeps brighter across the clip → blown highlights by the end (esp. high-key
+    # scenes like a white outfit). ColorMatch re-anchors every decoded frame's
+    # color statistics to the start image, killing the drift. mkl matches mean +
+    # covariance; lower `strength` if it over-corrects intentional lighting.
+    # ImageColorMatch+ (comfyui_essentials) — self-contained LAB match, no external
+    # color-matcher package needed (KJNodes' ColorMatch requires one that isn't
+    # installed on the pod). factor 1.0 = full lock to source exposure/color.
+    n_dec = node("ImageColorMatch+", {
+        "image":       [n_dec, 0],
+        "reference":   [n_img, 0],
+        "color_space": "LAB",
+        "factor":      1.0,
+        "device":      "auto",
+        "batch_size":  0,
+    })
+
     if use_rife:
-        # RIFE doubles the frame count → smooth motion without vibration
-        # Generates at half fps, RIFE interpolates to target fps
+        # RIFE doubles the frame count (real frames + interpolated in-betweens).
+        # Native length stays 81 (one context window = always photoreal, no
+        # "second-window interpretation" drift). Playback default rife_fps_mult=2.0
+        # → 162 frames @ 2x fps = REAL-TIME smooth motion (~3.4s at fps=24, 48fps
+        # silky), NOT slow-mo. Smoothing only, no diffusion cost. Set rife_fps_mult
+        # to 4/3 for a ~5s gentle slow-mo "money shot" extend. (Slow-mo as the
+        # default made every clip 1.5x slow — user disliked it, reverted 2026-06-12.)
         n_frames = node("RIFEInterpolation", {
-            "frames":                    [n_dec, 0],
-            "multiplier":                2,
-            "fps":                       float(fps),
-            "clear_cache_after_n_frames": 10,
-            "use_cache":                 True,
-            "ckpt_name":                 "flownet.pkl",
-            "interpolate_until_fps":     float(fps * 2),
+            "images":      [n_dec, 0],
+            "source_fps":  float(fps),
+            "target_fps":  float(fps * 2),  # 2x frames between real frames
+            "scale":       1.0,
+            "model_name":  "flownet.pkl",
         })
-        n_vid = node("CreateVideo", {"images": [n_frames, 0], "fps": float(fps)})
+        n_vid = node("CreateVideo", {"images": [n_frames, 0], "fps": float(fps) * rife_fps_mult})
     else:
         n_vid = node("CreateVideo", {"images": [n_dec, 0], "fps": float(fps)})
 

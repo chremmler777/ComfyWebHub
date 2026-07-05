@@ -5,13 +5,14 @@ import json
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import time
 import uuid
 from pathlib import Path
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, jsonify, request, send_file, send_from_directory, Response
 from PIL import Image
 import pipeline_detect
 
@@ -78,6 +79,13 @@ def _parse_mode(mode_str, fast_mode_fallback=True) -> tuple[bool, int]:
 app = Flask(__name__, static_folder="static")
 
 
+@app.before_request
+def _require_basic_auth():
+    auth = request.authorization
+    if not auth or auth.username != "lala" or auth.password != "lala":
+        return Response("login required", 401, {"WWW-Authenticate": 'Basic realm="keeper-web"'})
+
+
 def data_file(character: str) -> Path:
     return DATA_DIR / f"{character}.json"
 
@@ -105,6 +113,15 @@ def index():
 @app.get("/latest")
 def latest_page():
     resp = send_from_directory("static", "latest.html")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
+@app.get("/swipe")
+def swipe_page():
+    resp = send_from_directory("static", "swipe.html")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
@@ -296,6 +313,68 @@ def serve_img(character: str, filename: str):
     if not path.is_file():
         return "not found", 404
     return send_file(path)
+
+
+THUMB_ROOT = OUTPUT_ROOT.parent / ".keeper_thumbs"
+THUMB_MAX_W = 720
+THUMB_QUALITY = 78
+BIG_ROOT = OUTPUT_ROOT.parent / ".keeper_big"
+BIG_MAX_W = 1568
+BIG_QUALITY = 85
+
+
+def _serve_scaled(character: str, filename: str, cache_root, max_w: int, quality: int):
+    """Downscaled JPEG of /img/<character>/<filename>, disk-cached under cache_root.
+
+    Bandwidth saver for phones: serves a max-<max_w>px-wide JPEG instead of the
+    full-res PNG. Reuses the cache file as long as it's newer than the source."""
+    src = OUTPUT_ROOT / character / filename
+    if not src.is_file():
+        return "not found", 404
+
+    cache = cache_root / character / (filename + ".jpg")
+    try:
+        if cache.is_file() and cache.stat().st_mtime >= src.stat().st_mtime:
+            resp = send_file(cache, mimetype="image/jpeg")
+            resp.headers["Cache-Control"] = "max-age=86400"
+            return resp
+    except OSError:
+        pass
+
+    try:
+        img = Image.open(src)
+        if img.mode in ("RGBA", "LA", "P"):
+            img = img.convert("RGBA")
+            bg = Image.new("RGB", img.size, (0, 0, 0))
+            bg.paste(img, mask=img.split()[-1])
+            img = bg
+        else:
+            img = img.convert("RGB")
+        if img.width > max_w:
+            h = int(img.height * max_w / img.width)
+            img = img.resize((max_w, h), Image.LANCZOS)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        img.save(cache, "JPEG", quality=quality, optimize=True)
+    except Exception as e:
+        # If scaling fails for any reason, fall back to full image.
+        print(f"[scaled] failed for {character}/{filename}: {e}", file=sys.stderr)
+        return send_file(src)
+
+    resp = send_file(cache, mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "max-age=86400"
+    return resp
+
+
+@app.get("/thumb/<character>/<path:filename>")
+def serve_thumb(character: str, filename: str):
+    return _serve_scaled(character, filename, THUMB_ROOT, THUMB_MAX_W, THUMB_QUALITY)
+
+
+@app.get("/big/<character>/<path:filename>")
+def serve_big(character: str, filename: str):
+    """Modal/lightbox size for phones — full-res PNGs (~2.8MB) over Wi-Fi
+    saturate the MT7922 radio (PC→AP→phone = every byte on air twice)."""
+    return _serve_scaled(character, filename, BIG_ROOT, BIG_MAX_W, BIG_QUALITY)
 
 
 @app.get("/api/download/<character>/<path:filename>")
@@ -648,9 +727,27 @@ def peek(character: str, name: str):
 
 
 def rebuild_workflow(orig_workflow: dict, new_seed: int) -> dict:
-    """Clone the original workflow with a new seed."""
+    """Clone the original workflow with a fresh seed on every sampler node.
+
+    Pipeline-agnostic: the primary KSampler is no longer always node "3"
+    (DAMN/MoP put it at "23", Qwen/anima vary). Re-seed every node that
+    carries a seed/noise_seed so "make similar" always varies the render.
+    Each seed-bearing node gets a distinct derived seed.
+    """
     wf = copy.deepcopy(orig_workflow)
-    wf["3"]["inputs"]["seed"] = new_seed
+    offset = 0
+    for node in wf.values():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs", {})
+        if not isinstance(inputs, dict):
+            continue
+        for key in ("seed", "noise_seed"):
+            if isinstance(inputs.get(key), int):
+                inputs[key] = (new_seed + offset) % (2 ** 53)
+                offset += 1
+    if offset == 0 and "3" in wf:  # legacy fallback
+        wf["3"].setdefault("inputs", {})["seed"] = new_seed
     return wf
 
 
@@ -852,6 +949,74 @@ def queue_hq(character: str, name: str):
     return jsonify({"ok": True, "prompt_id": pid, "num": num})
 
 
+# ── Photoreal pass: 1.5x hires + CyberRealistic Pony img2img refine (the "creatil" upgrade) ──
+INPUT_ROOT = Path("/home/chremmler/ComfyUI/input")
+PR_REFINE_CKPT = "cyberrealisticPony_v180Coreshift.safetensors"
+PR_POS = ("score_9, score_8_up, score_7_up, (photorealistic, raw photo, real photograph, real skin "
+          "texture, visible skin pores, film grain:1.3), ")
+PR_NEG = ("score_6, score_5, score_4, (anime, cartoon, illustration, cgi, 3d, render, doll, plastic skin, "
+          "smooth airbrushed skin:1.3), worst quality, low quality, deformed, bad anatomy, bad hands, "
+          "watermark, signature, (detached penis, floating penis:1.4), young, teen, child, ")
+
+
+def _png_positive(png_path: Path) -> str:
+    """Best-effort positive-prompt text from a ComfyUI PNG: follow the KSampler's positive link,
+    else fall back to common node ids (20=creatil, 6=pony)."""
+    try:
+        d = json.loads(Image.open(png_path).info.get("prompt", "{}"))
+    except Exception:
+        return ""
+    for node in d.values():
+        if node.get("class_type") == "KSampler":
+            link = node.get("inputs", {}).get("positive")
+            if isinstance(link, list):
+                t = d.get(link[0], {}).get("inputs", {}).get("text")
+                if t:
+                    return t
+    for cand in ("20", "6"):
+        t = d.get(cand, {}).get("inputs", {}).get("text")
+        if t:
+            return t
+    return ""
+
+
+@app.post("/api/photoreal/<character>/<name>")
+def queue_photoreal(character: str, name: str):
+    """Add the photoreal passes to one render: copy its pixels, img2img through CyberRealistic Pony
+    at 1.5x with denoise 0.5. Output -> <char>_refine_<num> (picked up by the 'refined' badge)."""
+    png_path = OUTPUT_ROOT / character / f"{name}.png"
+    if not png_path.is_file():
+        return jsonify({"error": "image not found"}), 404
+    src_name = f"pr_{character}_{name}.png"
+    try:
+        shutil.copyfile(png_path, INPUT_ROOT / src_name)
+    except Exception as e:
+        return jsonify({"error": f"copy to input failed: {e}"}), 500
+    m = re.search(r'_0*(\d+)_?$', name)
+    num = m.group(1) if m else "00"
+    pos = PR_POS + _png_positive(png_path)
+    seed = random.randint(1, 2**53)
+    wf = {
+        "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": PR_REFINE_CKPT}},
+        "2": {"class_type": "CLIPSetLastLayer", "inputs": {"clip": ["1", 1], "stop_at_clip_layer": -2}},
+        "3": {"class_type": "LoadImage", "inputs": {"image": src_name}},
+        "4": {"class_type": "VAEEncode", "inputs": {"pixels": ["3", 0], "vae": ["1", 2]}},
+        "5": {"class_type": "LatentUpscaleBy", "inputs": {
+            "samples": ["4", 0], "upscale_method": "bicubic", "scale_by": 1.5}},
+        "20": {"class_type": "CLIPTextEncode", "inputs": {"text": pos, "clip": ["2", 0]}},
+        "21": {"class_type": "CLIPTextEncode", "inputs": {"text": PR_NEG, "clip": ["2", 0]}},
+        "23": {"class_type": "KSampler", "inputs": {
+            "model": ["1", 0], "positive": ["20", 0], "negative": ["21", 0], "latent_image": ["5", 0],
+            "seed": seed, "steps": 28, "cfg": 5.0,
+            "sampler_name": "dpmpp_2m_sde", "scheduler": "karras", "denoise": 0.45}},
+        "24": {"class_type": "VAEDecode", "inputs": {"samples": ["23", 0], "vae": ["1", 2]}},
+        "25": {"class_type": "SaveImage", "inputs": {"images": ["24", 0],
+                "filename_prefix": f"comfy/{character}/{character}_refine_{num}"}},
+    }
+    pid = queue_prompt(wf)
+    return jsonify({"ok": True, "prompt_id": pid, "num": num})
+
+
 # ── ComfyUI WebSocket proxy ──────────────────────────────────────────────────
 # Runs as a background thread: connects server-side (no origin check) to
 # ComfyUI's WebSocket and caches the latest preview frame + progress info.
@@ -1031,7 +1196,7 @@ def _download_video(job: dict, videos: list[dict]) -> None:
     for v in videos:
         rel = v.get("rel", "")
         fname = rel.split("/")[-1]
-        dest = dest_dir / f"{src_name}__{fname}"
+        dest = dest_dir / (f"{src_name}__{fname}" if src_name else fname)
         if dest.exists():
             continue
         try:
@@ -1059,9 +1224,116 @@ def _download_video(job: dict, videos: list[dict]) -> None:
             pass
 
 
+# ── Auto-pull sweep ──────────────────────────────────────────────────────────
+# Downloads ANY finished .mp4 on the ComfyUI instance that we don't already have,
+# including clips dispatched outside keeperweb (standalone dispatch_*.py scripts).
+# Complements the tracked-job poller (_bg_job_poll_loop, which handles Part 1).
+def _prompt_from_history_entry(entry: dict) -> str:
+    """Best-effort positive prompt from a /history entry's stored workflow."""
+    try:
+        workflow = entry.get("prompt", [None, None, {}])[2]
+        texts = [n.get("inputs", {}).get("text", "") for n in workflow.values()
+                 if isinstance(n, dict) and n.get("class_type") == "CLIPTextEncode"]
+        texts = [t for t in texts if isinstance(t, str) and t.strip()]
+        positives = [t for t in texts if "low quality" not in t and "worst quality" not in t]
+        return (positives or texts or [""])[0]
+    except Exception:
+        return ""
+
+
+_AUTOPULL_SEEN = DATA_DIR / "autopull_seen.json"
+
+def _seen_load() -> set:
+    try:
+        return set(json.loads(_AUTOPULL_SEEN.read_text()))
+    except Exception:
+        return set()
+
+def _seen_save(s: set) -> None:
+    try:
+        _AUTOPULL_SEEN.write_text(json.dumps(sorted(s)))
+    except Exception:
+        pass
+
+
+def _sweep_history() -> None:
+    """Pull every finished .mp4 on the pod we have NEVER pulled before. Dedup via a
+    PERSISTENT ledger of pulled ComfyUI filenames, so deleting a clip in keeper does
+    NOT trigger a re-download."""
+    history = _runpod_get("/history")
+    seen = _seen_load()
+    # Fold currently-present swept clips into the ledger so they're remembered even
+    # if deleted later (covers clips pulled before this ledger existed).
+    unc = VIDEO_DIR / "uncategorized"
+    if unc.exists():
+        for p in unc.glob("*.mp4"):
+            seen.add(p.name)
+    tracked = {p.name for p in VIDEO_DIR.rglob("*.mp4")}  # skip Part-1 files (src__fname)
+    def have(fn):
+        return fn in seen or any(n.endswith(fn) for n in tracked)
+    changed = False
+    for entry in history.values():
+        if not isinstance(entry, dict):
+            continue
+        videos = []
+        for node_output in entry.get("outputs", {}).values():
+            for key in ("videos", "images"):
+                for vinfo in node_output.get(key, []):
+                    fname = vinfo.get("filename", "")
+                    if not fname.endswith(".mp4") or have(fname):
+                        continue
+                    subfolder = vinfo.get("subfolder", "")
+                    videos.append({
+                        "rel": f"{subfolder}/{fname}".lstrip("/"),
+                        "url": f"{RUNPOD_COMFY}/view?filename={fname}&subfolder={subfolder}&type=output",
+                    })
+                    seen.add(fname); changed = True  # remember permanently -> deletion won't re-pull
+        if not videos:
+            continue
+        job = {"character": "uncategorized", "name": "",
+               "prompt": _prompt_from_history_entry(entry),
+               "user_description": "auto-swept (dispatched outside keeperweb)"}
+        _download_video(job, videos)
+    if changed or seen:
+        _seen_save(seen)
+
+
+def _autopull_sweep_loop() -> None:
+    """Background thread: every 60s, sweep the pod for any finished clip we lack."""
+    time.sleep(15)  # let startup + tracked-job poller settle first
+    while True:
+        try:
+            _sweep_history()
+        except Exception:
+            pass
+        time.sleep(60)
+
+
 def _upload_to_runpod(image_path) -> str:
     """Upload image to RunPod ComfyUI input folder, return filename."""
     return runpod_client.upload_image(image_path)
+
+
+def _wan_dims_for_image(png_path, base: int = 640, mult: int = 16,
+                        lo: int = 320, hi: int = 1024) -> tuple[int, int]:
+    """Derive WAN width/height from a source image's aspect ratio.
+
+    Preserves the source aspect (no square distortion) while keeping pixel
+    area ≈ base² so render time stays consistent. Snaps each side to a
+    multiple of `mult` and clamps to [lo, hi]. Falls back to base×base if
+    the image can't be read.
+    """
+    try:
+        from PIL import Image
+        w, h = Image.open(png_path).size
+        ar = w / h
+        th = (base * base / ar) ** 0.5
+        tw = ar * th
+        def snap(x):
+            return max(lo, min(hi, int(round(x / mult)) * mult))
+        return snap(tw), snap(th)
+    except Exception:
+        return base, base
 
 
 @app.post("/api/animate")
@@ -1086,7 +1358,15 @@ def api_animate():
 
     engine = body.get("engine", "wan")
     fast_mode, quality_steps = _parse_mode(body.get("mode"), body.get("fast_mode", True))
-    default_w, default_h, default_len = (768, 512, 97) if engine == "ltxv" else (640, 640, 81)
+    if engine == "ltxv":
+        default_w, default_h, default_len = 768, 512, 97
+    else:
+        # Derive dims from source aspect so portrait images aren't squished into a square.
+        default_w, default_h = _wan_dims_for_image(png_path)
+        # 81 = one context window → stays faithful to source. Longer length crosses
+        # into a 2nd window that hallucinates ("interprets") the image into CGI drift.
+        # Duration is extended via RIFE playback (see wan_workflow.py) instead.
+        default_len = 81
     job_id = str(uuid.uuid4())
     job = {
         "job_id": job_id,
@@ -1103,6 +1383,11 @@ def api_animate():
         "fast_mode": fast_mode,
         "quality_steps": quality_steps,
         "content_loras": body.get("content_loras", []),
+        # Partnered/POV overrides (kept man in frame, handheld POV, etc.) — used by
+        # both the single dispatch path and svi_long. None => default behavior.
+        "negative": body.get("negative") or None,
+        "prefix_override": body.get("prefix_override", None),
+        "out_stem": body.get("out_stem", None),
         "long_mode": bool(body.get("long_mode", False)),
         "target_clips": int(body.get("target_clips", 0)),
         "clip_prompts": body.get("clip_prompts", []),
@@ -1296,6 +1581,15 @@ def api_dispatch(job_id: str):
         )
     else:
         from wan_workflow import build_wan_i2v_workflow
+        # Per-job overrides for partnered/POV scenes: a custom negative (keep the
+        # male partner in frame — default negative strips "other people"/"multiple
+        # people") and a positive prefix override (e.g. allow handheld POV camera,
+        # or drop the slow-motion / hands-away clause for rough sex).
+        extra = {}
+        if job.get("negative"):
+            extra["negative_prompt"] = job["negative"]
+        if job.get("prefix_override") is not None:
+            extra["prefix_override"] = job["prefix_override"]
         workflow = build_wan_i2v_workflow(
             image_filename=comfy_filename,
             positive_prompt=refined_prompt,
@@ -1305,6 +1599,8 @@ def api_dispatch(job_id: str):
             quality_steps=job.get("quality_steps", 20),
             content_loras=_ensure_default_wan_loras(job.get("content_loras", [])),
             filename_prefix="video/wan_ai",
+            use_rife=job.get("use_rife", True),  # RIFE 48fps smooth = reusable default (2026-06-11)
+            **extra,
         )
     try:
         result = _runpod_post("/prompt", {"prompt": workflow})
@@ -1442,7 +1738,10 @@ def api_local_videos():
             src_name = parts[0] if len(parts) == 2 else f.stem
             thumb = DATA_DIR / "video_thumbs" / f"{char_dir.name}__{f.stem}.jpg"
             meta_file = f.with_suffix(".json")
-            meta = json.loads(meta_file.read_text()) if meta_file.exists() else {}
+            try:
+                meta = json.loads(meta_file.read_text()) if meta_file.exists() else {}
+            except Exception:
+                meta = {}  # corrupt/empty sidecar (e.g. half-written on crash) -> don't break the page
             out.append({
                 "character": char_dir.name,
                 "src_name": src_name,
@@ -1680,10 +1979,14 @@ _shutdown_thread.start()
 _bg_poll_thread = threading.Thread(target=_bg_job_poll_loop, daemon=True)
 _bg_poll_thread.start()
 
+# Part 2: sweep the pod for clips dispatched outside keeperweb (standalone scripts)
+_sweep_thread = threading.Thread(target=_autopull_sweep_loop, daemon=True)
+_sweep_thread.start()
+
 # Load persisted jobs from previous session
 with _animate_jobs_lock:
     _animate_jobs = _load_saved_jobs()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5151, debug=False)
+    app.run(host="0.0.0.0", port=5151, debug=False, threaded=True)

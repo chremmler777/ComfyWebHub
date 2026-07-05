@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>keeper-web · latest</title>
 <style>
   :root { color-scheme: dark; }
@@ -47,6 +48,20 @@
   .similar-btn:disabled { background: #666; cursor: wait; }
   .similar-row { display: flex; gap: 10px; align-items: center; justify-content: center; flex-shrink: 0; }
   .similar-toast { color: #4c4; font-size: 0.9em; font-weight: bold; }
+  /* Mobile touch action bar inside lightbox */
+  #touchBar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; flex-shrink: 0; margin: 8px 0 4px; }
+  #touchBar button { min-height: 48px; min-width: 64px; padding: 10px 16px; border: none; border-radius: 6px;
+    background: #2a2a30; color: #ddd; font-size: 1.05em; font-weight: bold; cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+  #touchBar button:active { background: #444; }
+  #touchBar button.tb-keep { background: #1a4a1a; color: #6f9; }
+  #touchBar button.tb-reject { background: #4a1a1a; color: #f88; }
+  #touchBar button.tb-star { background: #4a3a10; color: gold; }
+  #touchBar button.tb-note { background: #1a2a4a; color: #7af; }
+  @media (max-width: 820px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+    #touchBar button { flex: 1 1 auto; min-width: 80px; font-size: 1.15em; min-height: 52px; }
+    #noteInput { width: 100%; max-width: 100%; }
+  }
   .pag-btn { background: #7af; color: #111; border: none; padding: 6px 14px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 1em; }
   .pag-btn:hover { background: #9cf; }
   .pag-btn:disabled { background: #666; cursor: wait; }
@@ -125,6 +140,7 @@
 <header>
   <a href="/">← by character</a>
   <a href="/stars">★★★ gallery</a>
+  <a href="/swipe" style="color:#6cf;font-weight:bold">📱 swipe</a>
   <span class="stat">latest gens across all characters</span>
   <select id="limitSel">
     <option value="30">30</option>
@@ -162,6 +178,15 @@
     <button class="cmp-btn" id="cmpBtn" disabled title="H">⇔ HQ</button>
     <span class="similar-toast" id="similarToast"></span>
   </div>
+  <div id="touchBar">
+    <button type="button" onclick="stepLb(-1)">&#9664; Prev</button>
+    <button type="button" class="tb-keep" onclick="tapKeep()">&#10003; Keep</button>
+    <button type="button" class="tb-reject" onclick="tapReject()">&#10007; Reject</button>
+    <button type="button" class="tb-star" onclick="tapStar()">&#9733; Star</button>
+    <button type="button" class="tb-note" onclick="tapNote()">&#9998; Note</button>
+    <button type="button" onclick="stepLb(1)">Next &#9654;</button>
+    <button type="button" onclick="closeLightbox()">&#10538; Close</button>
+  </div>
   <input id="noteInput" placeholder="note (Enter to save, Esc to cancel)">
   <div class="info hint">Z keep · X reject · C note · Space ★ · S similar · P PAG · H compare HQ · 1 face · 2 hand-cock · 3 full-2pass · B bake-off · I peek · ← → step · scroll zoom · dbl-click reset</div>
 </div>
@@ -175,6 +200,7 @@
 </div>
 
 <script>
+const IMG_EP = matchMedia('(pointer: coarse)').matches ? '/big' : '/img';  // phones get mid-res JPEG (Wi-Fi saver)
 const grid = document.getElementById('grid');
 const stat = document.getElementById('stat');
 const limitSel = document.getElementById('limitSel');
@@ -369,7 +395,7 @@ async function load() {
       ? `<button class="hq-card-btn" data-char="${x.character}" data-name="${x.name}">▲HQ</button>`
       : '';
     return `<div class="card ${cls} ${starClass} ${i===gridActive?'active':''}" data-idx="${i}" title="${x.character} · ${x.name}">
-      <img src="/img/${x.character}/${x.file}" loading="lazy">
+      <img src="/thumb/${x.character}/${x.file}" loading="lazy" decoding="async">
       ${x.stars ? starStr(x.stars) : ''}
       <div class="date">${fmtTime(x.mtime)}</div>
       ${bakeBadge}
@@ -540,7 +566,7 @@ function openLightbox(idx) {
   } else {
     document.getElementById('bakeoff').classList.remove('show');
     zw.style.display = '';
-    lbImg.src = `/img/${x.character}/${x.file}`;
+    lbImg.src = `${IMG_EP}/${x.character}/${x.file}`;
     resetZoom();
   }
   const gs = groupSizeFor(x);
@@ -611,8 +637,8 @@ async function openCompare() {
   const num = String(parseInt(m[1], 10));
   const pair = pairs.find(p => p.num === num);
   if (!pair) return;
-  cmpOrig.src = `/img/${x.character}/${pair.orig}`;
-  cmpHq.src   = `/img/${x.character}/${pair.hq}`;
+  cmpOrig.src = `${IMG_EP}/${x.character}/${pair.orig}`;
+  cmpHq.src   = `${IMG_EP}/${x.character}/${pair.hq}`;
   setCmpSplit(50);
   zw.style.display = 'none';
   cmpWrap.classList.add('show');
@@ -695,7 +721,7 @@ function renderBakeoff() {
     const cls = (paneIdx === bakeIdx ? 'active ' : '') + (x.keep ? 'keep ' : '') + (x.reject ? 'reject ' : '');
     return `
       <div class="pane ${cls}" data-bi="${paneIdx}">
-        <img src="/img/${x.character}/${x.file}">
+        <img src="${IMG_EP}/${x.character}/${x.file}">
         <div class="cap">
           <div class="variant">${variant}${badges.length ? ' <span class="badges-inline">'+badges.join('')+'</span>' : ''}</div>
           <div class="peek" id="latpeek-${paneIdx}">loading…</div>
@@ -763,6 +789,13 @@ window.addEventListener('mouseup', () => { dragStart = null; zw.classList.remove
 zw.addEventListener('dblclick', () => resetZoom());
 lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
 const noteInput = document.getElementById('noteInput');
+
+// On-screen tap-button helpers (mirror keyboard handlers; reuse mark/openLightbox)
+function curItem() { return currentData[lb.classList.contains('show') ? lbIdx : gridActive]; }
+function tapKeep()   { mark({ keep: !curItem()?.keep, reject: false }); }
+function tapReject() { mark({ reject: !curItem()?.reject, keep: false }); }
+function tapStar()   { mark({ stars: ((curItem()?.stars || 0) + 1) % 4 }); }
+function tapNote()   { if (!lb.classList.contains('show')) openLightbox(gridActive); noteOpen = true; noteInput.value = currentData[lbIdx]?.note || ''; noteInput.focus(); noteInput.select(); }
 
 document.addEventListener('keydown', e => {
   // Note input has focus

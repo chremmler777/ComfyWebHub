@@ -114,10 +114,19 @@ def run_long_job(job: dict, *, output_root, video_dir, ensure_loras, on_update) 
         for i in range(n):
             prompt = clip_prompts[i] if clip_prompts else job["prompt"]
             comfy_name = runpod_client.upload_image(start_png)
+            # Per-job overrides: a custom negative (e.g. nova's scene needs the
+            # man kept in frame — the default/LONG negative strips "other people")
+            # and an optional positive prefix override.
+            extra = {}
+            if job.get("negative"):
+                extra["negative_prompt"] = job["negative"]
+            if job.get("prefix_override") is not None:
+                extra["prefix_override"] = job["prefix_override"]
             wf = build_wan_i2v_workflow(
                 image_filename=comfy_name, positive_prompt=prompt,
                 width=w, height=h, length=CLIP_FRAMES, fps=int(job.get("fps", 24)),
                 seed=base_seed + i, long_clip=True,
+                **extra,
                 # SVI off by default: its loras corrupt generation via the standard
                 # LoraLoaderModelOnly path (needs Kijai native WanVideoWrapper nodes).
                 # Chaining alone (last-frame seeding) carries continuity. Override per job.

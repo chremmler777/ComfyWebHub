@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>keeper-web · swipe</title>
+<style>
+  :root {
+    --bg: #0e0e10;
+    --panel: #18181c;
+    --fg: #eee;
+    --green: #2ecc71;
+    --red: #ff4d6d;
+    --gold: #ffd24a;
+    --blue: #4af;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  #app {
+    display: flex; flex-direction: column;
+    height: 100vh; height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* ---- top bar ---- */
+  #topbar {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid #2a2a30;
+    font-size: 13px;
+  }
+  #topbar .char { font-weight: 700; color: var(--blue); max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #topbar .marks { display: flex; gap: 4px; flex-wrap: nowrap; }
+  #topbar .spacer { flex: 1 1 auto; }
+  #topbar .counter { color: #888; font-variant-numeric: tabular-nums; }
+  #undoBtn {
+    background: #2a2a30; color: var(--fg); border: none; border-radius: 8px;
+    padding: 6px 10px; font-size: 13px; cursor: pointer;
+  }
+  #undoBtn:disabled { opacity: 0.35; }
+  .pill {
+    border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 700; line-height: 1.4;
+  }
+  .pill.keep { background: var(--green); color: #062; }
+  .pill.reject { background: var(--red); color: #401018; }
+  .pill.star { background: var(--gold); color: #4a3500; }
+
+  /* ---- deck ---- */
+  #deck {
+    flex: 1 1 auto;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 0;
+    padding: 10px;
+  }
+  .card {
+    position: absolute;
+    top: 10px; left: 10px; right: 10px; bottom: 10px;
+    background: #000;
+    border-radius: 18px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px #2a2a30;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none;
+    will-change: transform;
+  }
+  .card img {
+    max-width: 100%; max-height: 100%;
+    width: 100%; height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    display: block;
+  }
+  .card .filelabel {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 6px 10px;
+    font-size: 11px; color: #ccc;
+    background: linear-gradient(transparent, rgba(0,0,0,0.75));
+    pointer-events: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ---- stamps ---- */
+  .stamp {
+    position: absolute; top: 28px;
+    font-size: 34px; font-weight: 900; letter-spacing: 2px;
+    padding: 6px 14px; border-radius: 12px;
+    border: 4px solid; opacity: 0; transform: rotate(-18deg);
+    pointer-events: none;
+  }
+  .stamp.keep  { left: 22px; color: var(--green); border-color: var(--green); transform: rotate(-18deg); }
+  .stamp.nope  { right: 22px; color: var(--red);  border-color: var(--red);  transform: rotate(18deg); }
+  .stamp.star  { left: 50%; top: 40px; transform: translateX(-50%) scale(0.8); color: var(--gold); border-color: var(--gold); }
+
+  /* ---- buttons ---- */
+  #buttons {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: space-around;
+    gap: 10px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: var(--panel);
+    border-top: 1px solid #2a2a30;
+  }
+  #buttons button {
+    border: none; border-radius: 50%;
+    width: 60px; height: 60px;
+    font-size: 26px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; background: #26262c;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+    transition: transform 0.08s;
+  }
+  #buttons button:active { transform: scale(0.88); }
+  #btnReject { color: var(--red);   box-shadow: 0 0 0 2px var(--red) inset, 0 4px 14px rgba(0,0,0,0.5); }
+  #btnNote   { color: var(--blue);  width: 50px; height: 50px; font-size: 20px; }
+  #btnStar   { color: var(--gold);  width: 50px; height: 50px; font-size: 22px; }
+  #btnKeep   { color: var(--green); box-shadow: 0 0 0 2px var(--green) inset, 0 4px 14px rgba(0,0,0,0.5); }
+  /* inline 1·2·3 star selector (replaces the single cycling ★ button) */
+  #starSel { display: flex; align-items: center; gap: 4px; }
+  #starSel .starbtn {
+    border: none; border-radius: 12px;
+    width: 44px; height: 44px; padding: 0;
+    font-size: 16px; font-weight: 800; cursor: pointer;
+    color: var(--gold); background: #26262c;
+    box-shadow: 0 0 0 1.5px var(--gold) inset, 0 4px 14px rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.08s;
+  }
+  #starSel .starbtn:active { transform: scale(0.88); }
+  #starSel .starbtn .num { font-size: 15px; }
+  #starSel .starbtn .st  { font-size: 11px; margin-left: 1px; }
+
+  /* ---- empty / loading ---- */
+  #empty {
+    position: absolute; inset: 0;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; text-align: center; color: #aaa; padding: 24px;
+  }
+  #empty.show { display: flex; }
+  #empty button {
+    background: var(--blue); color: #04263f; border: none; border-radius: 10px;
+    padding: 12px 22px; font-size: 16px; font-weight: 700; cursor: pointer;
+  }
+
+  /* ---- note modal ---- */
+  #noteModal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; align-items: flex-end; justify-content: center; z-index: 50;
+  }
+  #noteModal.show { display: flex; }
+  #noteBox {
+    background: var(--panel); width: 100%; max-width: 520px;
+    border-radius: 16px 16px 0 0; padding: 18px;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+  #noteBox h3 { margin: 0 0 10px; font-size: 15px; }
+  #noteBox textarea {
+    width: 100%; min-height: 90px; resize: vertical;
+    background: #0e0e10; color: var(--fg); border: 1px solid #333; border-radius: 10px;
+    padding: 10px; font-size: 16px; font-family: inherit;
+  }
+  #noteBox .row { display: flex; gap: 10px; margin-top: 12px; }
+  #noteBox .row button { flex: 1; border: none; border-radius: 10px; padding: 12px; font-size: 15px; font-weight: 700; cursor: pointer; }
+  #noteCancel { background: #2a2a30; color: var(--fg); }
+  #noteSave { background: var(--blue); color: #04263f; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+    background: #000; color: #fff; padding: 8px 16px; border-radius: 20px;
+    font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 60;
+    border: 1px solid #333;
+  }
+  #toast.show { opacity: 0.95; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <span class="char" id="tbChar">loading…</span>
+    <span class="marks" id="tbMarks"></span>
+    <span class="spacer"></span>
+    <span class="counter" id="tbCounter"></span>
+    <button id="undoBtn" disabled>↶ undo</button>
+    <a href="/latest" style="color:#888;font-size:12px;text-decoration:none;margin-left:6px">grid</a>
+  </div>
+
+  <div id="deck">
+    <div id="empty">
+      <div id="emptyMsg">No more images — refresh to load the latest.</div>
+      <button id="refreshBtn">↻ Refresh feed</button>
+    </div>
+  </div>
+
+  <div id="buttons">
+    <button id="btnReject" title="Reject (swipe left)">&#10007;</button>
+    <button id="btnNote" title="Note (tap card)">&#9998;</button>
+    <div id="starSel" title="Stars (swipe up: farther = more)">
+      <button class="starbtn" data-stars="1" title="1 star">1<span class="st">&#9733;</span></button>
+      <button class="starbtn" data-stars="2" title="2 stars">2<span class="st">&#9733;</span></button>
+      <button class="starbtn" data-stars="3" title="3 stars">3<span class="st">&#9733;</span></button>
+    </div>
+    <button id="btnKeep" title="Keep (swipe right)">&#10003;</button>
+  </div>
+</div>
+
+<div id="noteModal">
+  <div id="noteBox">
+    <h3 id="noteTitle">Note</h3>
+    <textarea id="noteText" placeholder="type a note…"></textarea>
+    <div class="row">
+      <button id="noteCancel">Cancel</button>
+      <button id="noteSave">Save note</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+let deck = [];        // array of image items from /api/latest
+let idx = 0;          // current index
+let history = [];     // stack of previously-shown indices for undo
+const LIMIT = 120;
+
+const deckEl    = document.getElementById('deck');
+const emptyEl   = document.getElementById('empty');
+const tbChar    = document.getElementById('tbChar');
+const tbMarks   = document.getElementById('tbMarks');
+const tbCounter = document.getElementById('tbCounter');
+const undoBtn   = document.getElementById('undoBtn');
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 1400);
+}
+
+async function loadFeed() {
+  try {
+    const r = await fetch('/api/latest?limit=' + LIMIT, { headers: { 'Cache-Control': 'no-cache' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    deck = await r.json();
+  } catch (e) {
+    toast('feed error: ' + e.message);
+    deck = [];
+  }
+  idx = 0;
+  history = [];
+  render();
+}
+
+function currentItem() { return deck[idx]; }
+
+// Use the small server-side JPEG thumbnail for the deck — keeps the WiFi burst
+// tiny (phones were pulling the whole full-res PNG stack and crashing the adapter).
+function imgUrl(x) { return `/thumb/${encodeURIComponent(x.character)}/${encodeURIComponent(x.file)}`; }
+
+// Windowed preloader: only warm a few thumbs around the current index so we never
+// kick off the entire /api/latest array at once. The deck DOM shows current + 1
+// behind; we quietly prefetch the next 2 ahead (and 1 behind for undo) via off-DOM
+// Image() objects so advancing feels instant without a bulk load.
+const _preloaded = new Set();
+function preloadThumb(x) {
+  if (!x) return;
+  const u = imgUrl(x);
+  if (_preloaded.has(u)) return;
+  _preloaded.add(u);
+  const im = new Image();
+  im.decoding = 'async';
+  im.src = u;
+}
+function preloadWindow() {
+  preloadThumb(deck[idx + 1]);
+  preloadThumb(deck[idx + 2]);
+  preloadThumb(deck[idx - 1]);
+}
+
+function render() {
+  // remove any existing cards
+  [...deckEl.querySelectorAll('.card')].forEach(c => c.remove());
+
+  if (idx >= deck.length || deck.length === 0) {
+    emptyEl.classList.add('show');
+    tbChar.textContent = 'done';
+    tbMarks.innerHTML = '';
+    tbCounter.textContent = deck.length ? `${deck.length} / ${deck.length}` : '0 / 0';
+    undoBtn.disabled = history.length === 0;
+    return;
+  }
+  emptyEl.classList.remove('show');
+
+  const x = currentItem();
+
+  // build current card (and a peek of the next one behind it)
+  const next = deck[idx + 1];
+  if (next) deckEl.appendChild(buildCard(next, false));
+  const card = buildCard(x, true);
+  deckEl.appendChild(card);
+  attachGestures(card);
+
+  // topbar
+  tbChar.textContent = x.character;
+  tbCounter.textContent = `${idx + 1} / ${deck.length}`;
+  updateMarks();
+  undoBtn.disabled = history.length === 0;
+
+  // warm the next-ahead thumbs only (not the whole deck)
+  preloadWindow();
+}
+
+function buildCard(x, top) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  if (!top) { card.style.transform = 'scale(0.96) translateY(8px)'; card.style.filter = 'brightness(0.7)'; }
+  card.innerHTML = `
+    <img src="${imgUrl(x)}" alt="">
+    <div class="filelabel">${x.character} · ${x.name}${x.pipeline ? ' · ' + x.pipeline : ''}</div>
+    <div class="stamp keep">KEEP</div>
+    <div class="stamp nope">NOPE</div>
+    <div class="stamp star">&#9733;</div>
+  `;
+  return card;
+}
+
+function updateMarks() {
+  const x = currentItem();
+  if (!x) { tbMarks.innerHTML = ''; return; }
+  let html = '';
+  if (x.keep) html += '<span class="pill keep">KEEP</span>';
+  if (x.reject) html += '<span class="pill reject">REJECT</span>';
+  if (x.stars) html += `<span class="pill star">${'★'.repeat(x.stars)}</span>`;
+  if (x.note) html += '<span class="pill" style="background:#2a2a30;color:#8af">✎</span>';
+  tbMarks.innerHTML = html;
+}
+
+// ---- mark API ----
+async function postMark(x, patch) {
+  try {
+    const r = await fetch(`/api/mark/${encodeURIComponent(x.character)}/${encodeURIComponent(x.name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    });
+    const { entry } = await r.json();
+    // server returns the cleaned full entry; merge defaults + entry back onto item
+    Object.assign(x, { keep: false, reject: false, hq: null, note: '', regen: false, stars: 0 }, entry || {});
+  } catch (e) {
+    toast('mark failed: ' + e.message);
+  }
+}
+
+// ---- actions ----
+function doKeep()   { const x = currentItem(); if (!x) return; postMark(x, { keep: true, reject: false }); flingOff('right', 'KEEP'); }
+function doReject() { const x = currentItem(); if (!x) return; postMark(x, { reject: true, keep: false }); flingOff('left', 'rejected'); }
+function doStarN(n) {
+  const x = currentItem(); if (!x) return;
+  n = Math.max(1, Math.min(3, n | 0));
+  // FIX 1: a star implies a keeper. Was posting just { stars: n }, which left
+  // keep unset so starred items were never marked KEEP. Send a single combined
+  // patch so every star path (swipe-up, 1·2·3 buttons, number keys) also keeps.
+  postMark(x, { stars: n, keep: true, reject: false });
+  flingOff('up', '★'.repeat(n));
+}
+function openNote() {
+  const x = currentItem(); if (!x) return;
+  document.getElementById('noteTitle').textContent = `Note · ${x.name}`;
+  const ta = document.getElementById('noteText');
+  ta.value = x.note || '';
+  document.getElementById('noteModal').classList.add('show');
+  setTimeout(() => ta.focus(), 50);
+}
+
+document.getElementById('btnKeep').onclick = doKeep;
+document.getElementById('btnReject').onclick = doReject;
+document.querySelectorAll('#starSel .starbtn').forEach(b => {
+  b.onclick = () => doStarN(parseInt(b.dataset.stars, 10));
+});
+document.getElementById('btnNote').onclick = openNote;
+document.getElementById('refreshBtn').onclick = loadFeed;
+
+undoBtn.onclick = () => {
+  if (history.length === 0) return;
+  idx = history.pop();
+  render();
+};
+
+// note modal
+document.getElementById('noteCancel').onclick = () => document.getElementById('noteModal').classList.remove('show');
+document.getElementById('noteSave').onclick = async () => {
+  const x = currentItem();
+  const val = document.getElementById('noteText').value.trim();
+  document.getElementById('noteModal').classList.remove('show');
+  if (!x) return;
+  await postMark(x, { note: val });
+  updateMarks();
+  toast(val ? 'note saved' : 'note cleared');
+};
+
+// ---- advance with fling animation ----
+let animating = false;
+// FIX 2: monotonic gesture generation. Bumped for every card that gets gestures
+// attached (i.e. on every render/advance). Window-level mouse listeners registered
+// by previous cards are never removed, so stale closures (carrying a LEFTOVER curX
+// of the opposite sign) stayed live on window and could fire move()/up() on the new
+// card — flipping keep<->reject. Guarding every handler on its captured generation
+// makes ONLY the current card respond, so direction is deterministic each time.
+let gestureGen = 0;
+function flingOff(dir, label) {
+  if (animating) return;
+  animating = true;
+  const card = deckEl.querySelector('.card:last-child');
+  if (!card) { animating = false; advance(); return; }
+  const W = window.innerWidth, H = window.innerHeight;
+  let tx = 0, ty = 0, rot = 0;
+  if (dir === 'right') { tx = W * 1.3;  rot = 22; }
+  if (dir === 'left')  { tx = -W * 1.3; rot = -22; }
+  if (dir === 'up')    { ty = -H * 1.2; }
+  card.style.transition = 'transform 0.32s cubic-bezier(.3,.7,.4,1)';
+  card.style.transform = `translate(${tx}px, ${ty}px) rotate(${rot}deg)`;
+  card.style.opacity = '0.2';
+  if (label) toast(label);
+  setTimeout(() => { animating = false; advance(); }, 300);
+}
+
+function advance() {
+  history.push(idx);
+  idx += 1;
+  render();
+}
+
+// ---- gestures (touch + mouse) ----
+function attachGestures(card) {
+  // FIX 2: claim a fresh generation for this card. Any handler whose captured
+  // myGen !== gestureGen is stale (belongs to an already-advanced card) and must
+  // bail before touching shared/leftover state.
+  const myGen = ++gestureGen;
+  let startX = 0, startY = 0, curX = 0, curY = 0, dragging = false, moved = false, startT = 0;
+  const keepStamp = card.querySelector('.stamp.keep');
+  const nopeStamp = card.querySelector('.stamp.nope');
+  const starStamp = card.querySelector('.stamp.star');
+
+  const SWIPE = 110;        // px threshold for horizontal commit
+  const SWIPE_UP = 130;     // px threshold for vertical commit (band 1 start → 1 star)
+  const STAR_BAND = 100;    // px per additional star: band2 @230 → 2★, band3 @330 → 3★
+  const FLICK = 0.6;        // velocity px/ms
+
+  // map up-drag distance (px, positive = up) → 0/1/2/3 stars
+  function starsForUp(dy) {
+    if (dy < SWIPE_UP) return 0;
+    return Math.min(3, 1 + Math.floor((dy - SWIPE_UP) / STAR_BAND));
+  }
+
+  function down(x, y) {
+    if (animating) return;
+    // FIX 2: reset ALL drag state to a clean baseline at gesture START so nothing
+    // (curX/curY/start coords/moved/startT) carries over from a prior gesture or
+    // card and inverts the sign of the next swipe.
+    dragging = true; moved = false;
+    startX = x; startY = y; curX = 0; curY = 0; startT = performance.now();
+    card.style.transition = 'none';
+  }
+  function move(x, y) {
+    if (!dragging) return;
+    curX = x - startX; curY = y - startY;
+    if (Math.abs(curX) > 6 || Math.abs(curY) > 6) moved = true;
+    const rot = curX / 18;
+    card.style.transform = `translate(${curX}px, ${curY}px) rotate(${rot}deg)`;
+    // stamps
+    keepStamp.style.opacity = Math.max(0, Math.min(1, curX / SWIPE));
+    nopeStamp.style.opacity = Math.max(0, Math.min(1, -curX / SWIPE));
+    // up-drag: live star count grows/fills as each band is crossed
+    const upDom = (curY < 0 && Math.abs(curY) > Math.abs(curX));
+    const dy = upDom ? -curY : 0;
+    if (dy > 0) {
+      const st = starsForUp(dy);
+      starStamp.textContent = '★'.repeat(Math.max(1, st));
+      starStamp.style.fontSize = (28 + Math.max(1, st) * 8) + 'px';
+      // faint while approaching threshold, full + bright once a band commits
+      starStamp.style.opacity = st > 0 ? 1 : Math.max(0, Math.min(0.85, dy / SWIPE_UP));
+    } else {
+      starStamp.style.opacity = 0;
+    }
+  }
+  function up() {
+    if (!dragging) return;
+    dragging = false;
+    // FIX 2: derive the horizontal direction from the SAME live displacement (curX)
+    // the move() stamp reads — right/positive X = KEEP, left/negative X = REJECT —
+    // computed fresh from THIS gesture's curX/curY, never a stale/leftover value, so
+    // the visual stamp and the committed action can never disagree.
+    const dx = curX, dyy = curY;
+    const dt = Math.max(1, performance.now() - startT);
+    const vx = dx / dt, vy = dyy / dt;
+    const upDominant = (-dyy > Math.abs(dx));
+    const upDist = upDominant ? -dyy : 0;
+
+    if (upDominant && (upDist > SWIPE_UP || -vy > FLICK)) {
+      // distance picks 1/2/3; a fast flick below band1 still commits 1 star
+      doStarN(Math.max(1, starsForUp(upDist)));
+      return;
+    }
+    if (dx > SWIPE || vx > FLICK)  { doKeep(); return; }
+    if (dx < -SWIPE || vx < -FLICK) { doReject(); return; }
+
+    if (!moved) { openNote(); return; }   // tap → note
+    // spring back
+    card.style.transition = 'transform 0.25s cubic-bezier(.2,.8,.3,1)';
+    card.style.transform = 'translate(0,0) rotate(0)';
+    keepStamp.style.opacity = nopeStamp.style.opacity = starStamp.style.opacity = 0;
+    starStamp.textContent = '★'; starStamp.style.fontSize = '';
+  }
+
+  // FIX 2: every handler bails if its card is no longer the active generation, so a
+  // stale closure (incl. synthetic mouse events fired after a touch) can never act
+  // on the wrong card with a leftover curX.
+  const live = () => myGen === gestureGen;
+
+  // touch
+  card.addEventListener('touchstart', e => { if (!live()) return; down(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+  card.addEventListener('touchmove',  e => { if (!live()) return; move(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); }, { passive: false });
+  card.addEventListener('touchend',   e => { if (!live()) return; up(); }, { passive: true });
+  card.addEventListener('touchcancel', e => { if (!live()) return; up(); }, { passive: true });
+
+  // mouse (desktop sanity) — window listeners accumulate across renders; the live()
+  // guard neutralizes the leaked ones from already-advanced cards.
+  card.addEventListener('mousedown', e => { if (!live()) return; down(e.clientX, e.clientY); e.preventDefault(); });
+  window.addEventListener('mousemove', e => { if (!live()) return; if (dragging) move(e.clientX, e.clientY); });
+  window.addEventListener('mouseup', () => { if (!live()) return; if (dragging) up(); });
+}
+
+// keyboard (desktop sanity)
+window.addEventListener('keydown', e => {
+  if (document.getElementById('noteModal').classList.contains('show')) return;
+  if (e.key === 'ArrowRight') doKeep();
+  else if (e.key === 'ArrowLeft') doReject();
+  else if (e.key === 'ArrowUp') { e.preventDefault(); doStarN(1); }
+  else if (e.key === '1') doStarN(1);
+  else if (e.key === '2') doStarN(2);
+  else if (e.key === '3') doStarN(3);
+  else if (e.key.toLowerCase() === 'c') openNote();
+  else if (e.key.toLowerCase() === 'u') undoBtn.click();
+});
+
+loadFeed();
+</script>
+</body>
+</html>

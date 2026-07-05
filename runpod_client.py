@@ -37,7 +37,7 @@ def download(url: str, dest) -> None:
         f.write(r.content)
 
 
-def poll_until_done(prompt_id: str, timeout_s: int = 600, interval_s: float = 4.0) -> list[dict]:
+def poll_until_done(prompt_id: str, timeout_s: int = 1800, interval_s: float = 4.0) -> list[dict]:
     """Block until the prompt finishes. Returns list of {rel, url} mp4 outputs.
     Raises RuntimeError on ComfyUI error or timeout."""
     deadline = time.time() + timeout_s
